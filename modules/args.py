@@ -46,13 +46,13 @@ def parse_args():
     parser.add_argument('--temporal-window', type=int, default=5,
                         help='Temporal window size for GNN memory')
                         
-    # EWC parameters
-    parser.add_argument('--use-ewc', action='store_true',
-                        help='Use Elastic Weight Consolidation to prevent catastrophic forgetting')
-    parser.add_argument('--ewc-importance', type=float, default=100.0,
-                        help='Importance factor for EWC penalty (lambda)')
-    parser.add_argument('--ewc-online', action='store_true',
-                        help='Use online EWC instead of standard EWC')
+    # SI parameters (replacing EWC parameters)
+    parser.add_argument('--use-si', action='store_true',
+                        help='Use Synaptic Intelligence to prevent catastrophic forgetting')
+    parser.add_argument('--si-importance', type=float, default=100.0,
+                        help='Importance factor for SI penalty (lambda)')
+    parser.add_argument('--si-damping', type=float, default=0.1,
+                        help='Damping factor to prevent division by zero in SI calculation')
     
     # Experiment settings
     parser.add_argument('--seed', type=int, default=42, help='Random seed')

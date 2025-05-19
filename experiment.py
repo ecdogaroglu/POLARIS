@@ -33,13 +33,13 @@ def main():
         args.eval_only = False
         args.save_model = True
         args.use_gnn = True
-        args.use_ewc = True
-        args.ewc_importance = 100.0
-        args.ewc_online = True
+        args.use_si = True
+        args.si_importance = 100.0
         run_experiment(args)
 
         # Evaluate
         args.num_episodes = 10
+        args.use_si = False
         args.horizon = 100
         args.eval_only = True
         args.load_model = 'auto'

@@ -197,18 +197,18 @@ def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, train
         #    save_checkpoint_models(agents, output_dir, step)
         
         if done:
-            # Check if we have a new true state for EWC
-            if training and hasattr(args, 'use_ewc') and args.use_ewc:
+            # Check if we have a new true state for SI
+            if training and hasattr(args, 'use_si') and args.use_si:
                 current_true_state = env.true_state
                 print(f"Current true state: {current_true_state}")
                 # Check if this is a new true state for any agent
                 for agent_id, agent in agents.items():
-                    if hasattr(agent, 'use_ewc') and agent.use_ewc and hasattr(agent, 'seen_true_states'):
+                    if hasattr(agent, 'use_si') and agent.use_si and hasattr(agent, 'seen_true_states'):
                         if current_true_state not in agent.seen_true_states:
-                            # We have a new true state, calculate Fisher matrices
+                            # We have a new true state, calculate Path Integrals
                             if agent_id in replay_buffers:
-                                print(f"New true state {current_true_state} detected. Calculating Fisher matrices for agent {agent_id}...")
-                                agent.calculate_fisher_matrices(replay_buffers[agent_id])
+                                print(f"New true state {current_true_state} detected. Calculating Path Integrals for agent {agent_id}...")
+                                agent.calculate_path_integrals(replay_buffers[agent_id])
                         
                         # Add current true state to the set of seen states
                         agent.seen_true_states.add(current_true_state)
@@ -342,9 +342,9 @@ def initialize_agents(env, args, obs_dim):
             buffer_capacity=args.buffer_capacity,
             max_trajectory_length=args.horizon,
             use_gnn=args.use_gnn,
-            use_ewc=args.use_ewc if hasattr(args, 'use_ewc') else False,
-            ewc_importance=args.ewc_importance if hasattr(args, 'ewc_importance') else 1000.0,
-            ewc_online=args.ewc_online if hasattr(args, 'ewc_online') else False
+            use_si=args.use_si if hasattr(args, 'use_si') else False,
+            si_importance=args.si_importance if hasattr(args, 'si_importance') else 100.0,
+            si_damping=args.si_damping if hasattr(args, 'si_damping') else 0.1
         )
         
         # If using GNN, update the inference module with the specified parameters

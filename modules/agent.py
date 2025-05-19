@@ -6,7 +6,7 @@ import numpy as np
 from modules.networks import EncoderNetwork, DecoderNetwork, PolicyNetwork, QNetwork, TransformerBeliefProcessor, TemporalGNN
 from modules.replay_buffer import ReplayBuffer
 from modules.utils import get_best_device, encode_observation
-from modules.ewc import EWCLoss, calculate_fisher_from_replay_buffer
+from modules.si import SILoss, calculate_path_integral_from_replay_buffer
 
 class POLARISAgent:
     """POLARIS agent for social learning with additional advantage-based Transformer training."""
@@ -29,9 +29,9 @@ class POLARISAgent:
         buffer_capacity=1000,
         max_trajectory_length=50,
         use_gnn=True,
-        use_ewc=False,
-        ewc_importance=1000.0,
-        ewc_online=False
+        use_si=False,
+        si_importance=100.0,
+        si_damping=0.1
     ):
         
         # Use the best available device if none is specified
@@ -214,37 +214,37 @@ class POLARISAgent:
         # Episode tracking
         self.episode_step = 0
         
-        # EWC setup
-        self.use_ewc = use_ewc
-        self.ewc_importance = ewc_importance
-        self.ewc_online = ewc_online
+        # SI setup
+        self.use_si = use_si
+        self.si_importance = si_importance
+        self.si_damping = si_damping
         
-        if self.use_ewc:
+        if self.use_si:
             # Use a much higher importance factor for better protection against forgetting
             # The default value might be too low for this specific task
-            actual_importance = ewc_importance * 10.0  # Increase by 10x
+            actual_importance = si_importance * 10.0  # Increase by 10x
             
-            # Initialize EWC for belief processor and policy networks
-            self.belief_ewc = EWCLoss(
+            # Initialize SI for belief processor and policy networks
+            self.belief_si = SILoss(
                 model=self.belief_processor,
                 importance=actual_importance,
-                online=ewc_online,
+                damping=si_damping,
                 device=device
             )
             
-            self.policy_ewc = EWCLoss(
+            self.policy_si = SILoss(
                 model=self.policy,
                 importance=actual_importance,
-                online=ewc_online,
+                damping=si_damping,
                 device=device
             )
             
             # Track previously seen true states
             self.seen_true_states = set()
-            self.fisher_calculated = False
+            self.path_integrals_calculated = False
             
             # Add counter for debugging
-            self.ewc_debug_counter = 0
+            self.si_debug_counter = 0
     
     def observe(self, signal, neighbor_actions):
         """Update belief state based on new observation."""
@@ -656,15 +656,15 @@ class POLARISAgent:
         # Policy loss is negative of expected Q-value plus entropy
         policy_loss = -(expected_q + self.entropy_weight * entropy).mean()
         
-        # Add EWC loss if enabled
-        ewc_loss = 0.0
-        if self.use_ewc and self.fisher_calculated:
-            ewc_loss = self.policy_ewc.calculate_loss()
-            policy_loss += ewc_loss
-            if hasattr(self, 'ewc_debug_counter'):
-                self.ewc_debug_counter += 1
-                if self.ewc_debug_counter % 100 == 0:
-                    print(f"Agent {self.agent_id} Policy EWC Loss: {ewc_loss.item():.6f}, Main Loss: {policy_loss.item():.6f}")
+        # Add SI loss if enabled
+        si_loss = 0.0
+        if self.use_si and self.path_integrals_calculated:
+            si_loss = self.policy_si.calculate_loss()
+            policy_loss += si_loss
+            if hasattr(self, 'si_debug_counter'):
+                self.si_debug_counter += 1
+                if self.si_debug_counter % 100 == 0:
+                    print(f"Agent {self.agent_id} Policy SI Loss: {si_loss.item():.6f}, Main Loss: {policy_loss.item():.6f}")
         
         # Calculate advantage for Transformer training
         # Advantage is Q-value of taken action minus expected Q-value (baseline)
@@ -707,14 +707,14 @@ class POLARISAgent:
             belief_distributions, next_signals, reduction='none'
         ).sum(dim=1).mean()
         
-        # Add EWC loss if enabled
-        ewc_loss = 0.0
-        if self.use_ewc and self.fisher_calculated:
-            ewc_loss = self.belief_ewc.calculate_loss()
-            transformer_loss += ewc_loss
-            if hasattr(self, 'ewc_debug_counter'):
-                if self.ewc_debug_counter % 100 == 0:
-                    print(f"Agent {self.agent_id} Belief EWC Loss: {ewc_loss.item():.6f}, Main Loss: {transformer_loss.item():.6f}")
+        # Add SI loss if enabled
+        si_loss = 0.0
+        if self.use_si and self.path_integrals_calculated:
+            si_loss = self.belief_si.calculate_loss()
+            transformer_loss += si_loss
+            if hasattr(self, 'si_debug_counter'):
+                if self.si_debug_counter % 100 == 0:
+                    print(f"Agent {self.agent_id} Belief SI Loss: {si_loss.item():.6f}, Main Loss: {transformer_loss.item():.6f}")
                 
         # Update Transformer parameters
         self.transformer_optimizer.zero_grad()
@@ -901,19 +901,19 @@ class POLARISAgent:
         """
         return self.current_opponent_belief_distribution if hasattr(self, 'current_opponent_belief_distribution') else None
         
-    def calculate_fisher_matrices(self, replay_buffer):
+    def calculate_path_integrals(self, replay_buffer):
         """
-        Calculate Fisher information matrices for belief processor and policy networks
+        Calculate Path Integrals for belief processor and policy networks
         using data from the replay buffer.
         
         Args:
             replay_buffer: The replay buffer containing transitions
         """
         if replay_buffer is None:
-            print(f"Agent {self.agent_id}: No replay buffer provided. Skipping Fisher matrices calculation.")
+            print(f"Agent {self.agent_id}: No replay buffer provided. Skipping Path Integrals calculation.")
             return
         
-        # Define loss functions for Fisher calculation
+        # Define loss functions for Path Integrals calculation
         def belief_loss_fn(model, batch):
             signals, neighbor_actions, beliefs, _, _, _, next_signals, _, _, _, _ = batch
             
@@ -948,31 +948,37 @@ class POLARISAgent:
             loss.requires_grad_(True)
             return loss
         
-        # Calculate Fisher matrices
-        belief_fisher = calculate_fisher_from_replay_buffer(
+        # Calculate Path Integrals
+        belief_tracker, _ = calculate_path_integral_from_replay_buffer(
             model=self.belief_processor,
             replay_buffer=replay_buffer,
             loss_fn=belief_loss_fn,
+            optimizer=self.transformer_optimizer,
             device=self.device,
             batch_size=64,
             num_batches=10
         )
         
-        policy_fisher = calculate_fisher_from_replay_buffer(
+        policy_tracker, _ = calculate_path_integral_from_replay_buffer(
             model=self.policy,
             replay_buffer=replay_buffer,
             loss_fn=policy_loss_fn,
+            optimizer=self.policy_optimizer,
             device=self.device,
             batch_size=64,
             num_batches=10
         )
         
-        # Register tasks with EWC
-        self.belief_ewc.register_task(belief_fisher)
-        self.policy_ewc.register_task(policy_fisher)
+        # Register tasks with SI (this uses the accumulated path integrals in the trackers)
+        belief_tracker.register_task()
+        policy_tracker.register_task()
         
-        self.fisher_calculated = True
-        print(f"Agent {self.agent_id}: Fisher matrices calculated and registered with EWC")
+        # Replace our existing SI instances with the trained trackers
+        self.belief_si = belief_tracker
+        self.policy_si = policy_tracker
+        
+        self.path_integrals_calculated = True
+        print(f"Agent {self.agent_id}: Path Integrals calculated and registered with SI")
         
     def end_episode(self):
         """
