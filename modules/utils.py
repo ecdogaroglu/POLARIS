@@ -361,19 +361,6 @@ def update_total_rewards(total_rewards, rewards):
 def store_transition_in_buffer(buffer, signal, neighbor_actions, belief, latent, action, reward, next_signal, 
                               next_belief, next_latent, mean, logvar):
     """Store a transition in the replay buffer."""
-    # Add debug prints to track tensor shapes
-    print(f"store_transition_in_buffer: storing transition")
-    print(f"  signal shape: {signal.shape}")
-    print(f"  neighbor_actions shape: {neighbor_actions.shape}")
-    print(f"  belief shape: {belief.shape}")
-    print(f"  latent shape: {latent.shape}")
-    print(f"  next_signal shape: {next_signal.shape}")
-    print(f"  next_belief shape: {next_belief.shape}")
-    print(f"  next_latent shape: {next_latent.shape}")
-    if mean is not None:
-        print(f"  mean shape: {mean.shape}")
-        print(f"  logvar shape: {logvar.shape}")
-    
     buffer.push(
         signal=signal,
         neighbor_actions=neighbor_actions,

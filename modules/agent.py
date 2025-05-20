@@ -241,8 +241,8 @@ class POLARISAgent:
                 model=self.belief_processor,
                 importance=actual_importance,
                 damping=si_damping,
-                exclude_layers=self.excluded_belief_layers,
-                device=device
+                device=device,
+                excluded_layers=self.excluded_belief_layers
             )
             
             # Initialize SI for policy network with layer exclusion
@@ -250,8 +250,8 @@ class POLARISAgent:
                 model=self.policy,
                 importance=actual_importance,
                 damping=si_damping,
-                exclude_layers=self.excluded_policy_layers,
-                device=device
+                device=device,
+                excluded_layers=self.excluded_policy_layers
             )
             
             # Track previously seen true states
@@ -267,13 +267,6 @@ class POLARISAgent:
             
             # Add counter for debugging
             self.si_debug_counter = 0
-            
-            # For tracking parameter changes during training
-            self.belief_si_step_count = 0
-            self.policy_si_step_count = 0
-            self.accumulated_belief_loss = 0
-            self.accumulated_policy_loss = 0
-            self.si_accumulated_steps = 0
     
     def observe(self, signal, neighbor_actions):
         """Update belief state based on new observation."""
@@ -337,60 +330,29 @@ class POLARISAgent:
         self.target_q_network2.eval()
         
     def reset_internal_state(self):
-        """Reset internal states to initial values."""
-        # Reset belief and latent states
-        self.current_belief = torch.ones(1, 1, self.belief_processor.hidden_dim, device=self.device) / self.belief_processor.hidden_dim
-        self.current_latent = torch.ones(1, self.latent_dim, device=self.device) / self.latent_dim
+        """Reset the agent's internal state (belief and latent variables)."""
+        # Use zeros for a complete reset with correct shapes
+        self.current_belief = torch.zeros(1, 1, self.belief_processor.hidden_dim, device=self.device)  # [1, batch_size=1, hidden_dim]
+        self.current_latent = torch.zeros(1, self.latent_dim, device=self.device)
         self.current_mean = torch.zeros(1, self.latent_dim, device=self.device)
         self.current_logvar = torch.zeros(1, self.latent_dim, device=self.device)
         
-        # Reset belief probability distribution
+        # Reset belief distribution 
         self.current_belief_distribution = torch.ones(1, self.belief_processor.num_belief_states, device=self.device) / self.belief_processor.num_belief_states
         
-        # Reset opponent belief distribution
-        self.current_opponent_belief_distribution = torch.ones(1, self.num_agents, device=self.device) / self.num_agents
+        # Detach all tensors to ensure no gradient flow between episodes
+        self.current_belief = self.current_belief.detach()
+        self.current_latent = self.current_latent.detach()
+        self.current_mean = self.current_mean.detach()
+        self.current_logvar = self.current_logvar.detach()
+        if self.current_belief_distribution is not None:
+            self.current_belief_distribution = self.current_belief_distribution.detach()
+        if hasattr(self, 'current_opponent_belief_distribution') and self.current_opponent_belief_distribution is not None:
+            self.current_opponent_belief_distribution = self.current_opponent_belief_distribution.detach()
         
-        # Reset action probabilities history
-        self.action_probs_history = []
-        
-        # Reset episode step counter
-        self.episode_step = 0
-        
-        # Reset SI trackers if using SI and not already initialized
-        if self.use_si:
-            # Check if SI trackers are already initialized
-            if not hasattr(self, 'belief_si') or self.belief_si is None:
-                print(f"Agent {self.agent_id}: Initializing SI trackers for belief processor")
-                self.belief_si = SILoss(
-                    model=self.belief_processor,
-                    importance=self.si_importance,
-                    damping=self.si_damping,
-                    exclude_layers=self.excluded_belief_layers if hasattr(self, 'excluded_belief_layers') else [],
-                    device=self.device
-                )
-            
-            if not hasattr(self, 'policy_si') or self.policy_si is None:
-                print(f"Agent {self.agent_id}: Initializing SI trackers for policy network")
-                self.policy_si = SILoss(
-                    model=self.policy,
-                    importance=self.si_importance,
-                    damping=self.si_damping,
-                    exclude_layers=self.excluded_policy_layers if hasattr(self, 'excluded_policy_layers') else [],
-                    device=self.device
-                )
-            
-            # Initialize seen true states if not already initialized
-            if not hasattr(self, 'seen_true_states'):
-                self.seen_true_states = set()
-                self.state_belief_si_trackers = {}
-                self.state_policy_si_trackers = {}
-                
-            # Reset counters for SI
-            self.belief_si_step_count = 0
-            self.policy_si_step_count = 0
-            self.accumulated_belief_loss = 0
-            self.accumulated_policy_loss = 0
-            self.path_integrals_calculated = False
+        # If using GNN, reset its temporal memory
+        if self.use_gnn:
+            self.inference_module.reset_memory()
     
     def infer_latent(self, signal, neighbor_actions, reward, next_signal):
         """Infer latent state of neighbors based on our observations which already contain neighbor actions."""
@@ -472,167 +434,148 @@ class POLARISAgent:
         return self.update(batch_sequences)
     
     def update(self, batch_sequences):
-        """
-        Update parameters based on a batch of sequences.
+        """Update networks using batched data."""
+        # Initialize losses
+        total_inference_loss = 0
+        total_critic_loss = 0
+        total_policy_loss = 0
+        total_transformer_loss = 0
         
-        Args:
-            batch_sequences: Batch of environment interactions from replay buffer
-        """
-        # Unpack sequences
-        signals, neighbor_actions, beliefs, latents, actions, rewards, next_signals, next_beliefs, next_latents, means, logvars = batch_sequences
+        # Check if we have a single batch or a list of sequences
+        if isinstance(batch_sequences, tuple):
+            # Single batch case
+            batch_sequences = [batch_sequences]
         
-        # Update inference module
-        inference_loss = self._update_inference(signals, neighbor_actions, next_signals, next_latents, means, logvars)
+        # Process each time step in the sequence
+        for t, batch in enumerate(batch_sequences):
+            # Unpack the batch
+            (signals, neighbor_actions, beliefs, latents, actions, rewards, next_signals, next_beliefs, next_latents, means, logvars) = batch
+            
+            # Update inference module
+            inference_loss = self._update_inference(
+                signals,
+                neighbor_actions, 
+                next_signals, 
+                next_latents,
+                means, 
+                logvars
+            )
+            total_inference_loss += inference_loss
+            
+            # Update policy (with advantage for GRU)
+            policy_result = self._update_policy(beliefs, latents, actions, neighbor_actions)
+            policy_loss, _ = policy_result
+            total_policy_loss += policy_loss
+            
+            # Update Transformer with advantage
+            transformer_loss = self._update_transformer(
+                signals, 
+                neighbor_actions, 
+                beliefs,
+                next_signals)
+            total_transformer_loss += transformer_loss
+            
+            # Update Q-networks
+            critic_loss = self._update_critics(
+                signals, 
+                neighbor_actions, 
+                beliefs, 
+                latents, 
+                actions, 
+                neighbor_actions, 
+                rewards, 
+                next_signals, 
+                next_beliefs, 
+                next_latents
+            )
+            total_critic_loss += critic_loss
         
-        # Update critics
-        critic_loss = self._update_critics(signals, neighbor_actions, beliefs, latents, actions, neighbor_actions, rewards, next_signals, next_beliefs, next_latents)
-        
-        # Update policy
-        policy_loss = self._update_policy(beliefs, latents, actions, neighbor_actions)
-        
-        # Update Transformer for adaptive belief
-        transformer_loss = self._update_transformer(signals, neighbor_actions, beliefs, next_signals)
-        
-        # Update target networks
+        # Update target networks once per sequence
         self._update_targets()
         
+        # Return average losses
+        sequence_length = len(batch_sequences)
         return {
-            'inference_loss': inference_loss,
-            'critic_loss': critic_loss,
-            'policy_loss': policy_loss,
-            'transformer_loss': transformer_loss
+            'inference_loss': total_inference_loss / sequence_length,
+            'critic_loss': total_critic_loss / sequence_length,
+            'policy_loss': total_policy_loss / sequence_length,
+            'transformer_loss': total_transformer_loss / sequence_length
         }
-    
-    def _compute_belief_loss(self, signals, neighbor_actions, beliefs, next_signals):
-        """Compute the base belief loss (without SI component)."""
-        # Forward pass
-        _, belief_distributions = self.belief_processor(signals, neighbor_actions, beliefs)
-        
-        # Calculate belief loss (cross-entropy)
-        belief_loss = F.binary_cross_entropy(belief_distributions, next_signals, reduction='mean')
-        
-        return belief_loss
-    
-    def _compute_policy_loss(self, beliefs, latents, actions):
-        """Compute the base policy loss."""
-        # Debug print
-        print(f"Agent {self.agent_id}: _compute_policy_loss shapes:")
-        print(f"  beliefs shape: {beliefs.shape}")
-        print(f"  latents shape: {latents.shape}")
-        print(f"  actions shape: {actions.shape}")
-        
-        # Get action logits
-        action_logits = self.policy(beliefs, latents)
-        print(f"  action_logits shape: {action_logits.shape}")
-        
-        # Ensure actions has the right shape for cross_entropy
-        # cross_entropy expects target of shape [batch_size] for inputs of shape [batch_size, num_classes]
-        if action_logits.dim() == 3 and actions.dim() == 1:
-            # If action_logits has shape [batch_size, 2, 2] and actions has shape [batch_size],
-            # reshape action_logits to [batch_size, 2]
-            if action_logits.shape[1] == 2 and action_logits.shape[2] == 2:
-                action_logits = action_logits[:, 0, :]
-                print(f"  Reshaped action_logits shape: {action_logits.shape}")
-                
-        # For cross_entropy, if action_logits is [batch_size, num_classes] then actions should be [batch_size]
-        # If actions is [batch_size, 1], we need to squeeze it
-        if actions.dim() == 2 and actions.shape[1] == 1:
-            actions = actions.squeeze(1)
-            print(f"  Squeezed actions shape: {actions.shape}")
-            
-        # If action_logits has shape [batch_size, 1, num_classes], reshape it to [batch_size, num_classes]
-        if action_logits.dim() == 3 and action_logits.shape[1] == 1:
-            action_logits = action_logits.squeeze(1)
-            print(f"  Squeezed action_logits shape: {action_logits.shape}")
-            
-        # Ensure action indices are correct - they should be in the range [0, num_classes-1]
-        if actions.max() >= action_logits.shape[1]:
-            # Scale actions to be within the valid range
-            actions = torch.clamp(actions, 0, action_logits.shape[1] - 1)
-            print(f"  Clamped actions range: [{actions.min()}, {actions.max()}]")
-            
-        # Compute cross entropy loss
-        policy_loss = F.cross_entropy(action_logits, actions)
-        
-        return policy_loss
     
     def _update_inference(self, signals, neighbor_actions, next_signals, next_latents, means, logvars):
         """Update inference module with FURTHER-style temporal KL."""
         
-        # Add debug prints to track tensor shapes
-        print(f"Agent {self.agent_id}: _update_inference called")
-        print(f"  signals shape: {signals.shape}")
-        print(f"  neighbor_actions shape: {neighbor_actions.shape}")
-        print(f"  next_signals shape: {next_signals.shape}")
-        print(f"  next_latents shape: {next_latents.shape}")
-        if means is not None:
-            print(f"  means shape: {means.shape}")
-            print(f"  logvars shape: {logvars.shape}")
-        
         if self.use_gnn:
             # For GNN inference module
             # We need dummy rewards for the GNN forward pass
-            batch_size = signals.shape[0]
-            dummy_rewards = torch.zeros(batch_size, device=self.device)
+            batch_size = signals.size(0)
+            dummy_rewards = torch.zeros(batch_size, 1, device=self.device)
             
-            # Forward GNN to get z_t
-            current_z, _ = self.inference_module(signals, neighbor_actions, dummy_rewards)
+            # Forward pass through GNN to get new distribution parameters
+            # Note: we detach next_latents to avoid gradients flowing back through the target network
+            new_means, new_logvars, _ = self.inference_module(
+                signals, 
+                neighbor_actions, 
+                dummy_rewards, 
+                next_signals
+            )
             
-            # Forward GNN again to get z_{t+1}
-            # Since GNN parameters are shared for both current and next time step
-            next_z, _ = self.inference_module(next_signals, torch.zeros_like(neighbor_actions), dummy_rewards)
+            # Generate action predictions using the current batch
+            batch_neighbor_logits = self.inference_module.predict_actions(signals, next_latents.detach())
             
-            # Loss for tracking next latent
-            reconstruct_loss = F.mse_loss(next_z, next_latents)
-            kl_div = torch.tensor(0.0, device=self.device)
-        else:
-            # For encoder-decoder module
-            # Forward encoder with current observation
-            current_z, mu, logvar = self.encoder(signals, neighbor_actions)
-            
-            # Only compute KL loss if means and logvars provided from replay buffer
-            if means is not None and logvars is not None:
-                # Compute KL divergence from temporal consistency: p(z_{t+1}|z_t, a_t) || q(z_{t+1}|o_{t+1})
-                prior_mu = means
-                prior_logvar = logvars
-                
-                # Compute KL divergence
-                kl_div = -0.5 * torch.sum(1 + logvar - prior_logvar - 
-                                         (torch.exp(logvar) + (mu - prior_mu).pow(2)) / 
-                                          torch.exp(prior_logvar), dim=1)
-                kl_div = kl_div.mean()
+            # Reshape batch_neighbor_logits if needed for cross entropy
+            if batch_neighbor_logits.dim() == 3:
+                batch_size, seq_len, action_dim = batch_neighbor_logits.shape
+                batch_neighbor_logits = batch_neighbor_logits.view(batch_size * seq_len, action_dim)
+                neighbor_actions_reshaped = neighbor_actions.view(-1)
             else:
-                kl_div = torch.tensor(0.0, device=self.device)
+                neighbor_actions_reshaped = neighbor_actions
                 
-            # Forward encoder with next observation
-            next_z_recon, _, _ = self.encoder(next_signals, torch.zeros_like(neighbor_actions))
+            # Calculate reconstruction loss
+            recon_loss = F.cross_entropy(batch_neighbor_logits, neighbor_actions_reshaped)
             
-            # Loss for tracking next latent
-            reconstruct_loss = F.mse_loss(next_z_recon, next_latents)
+            # Calculate temporal KL divergence with numerical stability
+            kl_loss = self._calculate_temporal_kl_divergence(new_means, new_logvars)
+        else:
+            # For traditional encoder-decoder
+            # Generate fresh neighbor action logits for the batch
+            # Use the decoder directly on the batch
+            batch_neighbor_logits = self.decoder(signals, next_latents)
+        
+            # Reshape if needed for cross entropy
+            if batch_neighbor_logits.dim() == 3:
+                batch_size, seq_len, action_dim = batch_neighbor_logits.shape
+                batch_neighbor_logits = batch_neighbor_logits.view(batch_size * seq_len, action_dim)
+                neighbor_actions_reshaped = neighbor_actions.view(-1)
+            else:
+                neighbor_actions_reshaped = neighbor_actions
+            
+            # Calculate reconstruction loss
+            recon_loss = F.cross_entropy(batch_neighbor_logits, neighbor_actions_reshaped)
+            
+            # Calculate temporal KL divergence (FURTHER-style)
+            kl_loss = self._calculate_temporal_kl_divergence(means, logvars)
         
         # Total loss
-        inference_loss = reconstruct_loss + self.kl_weight * kl_div
+        inference_loss = recon_loss + kl_loss
         
-        # Update networks with SI regularization
-        self.encoder_optimizer.zero_grad()
+        # Update networks
+        self.inference_optimizer.zero_grad()
+        inference_loss.backward()
         
-        # We need to retain the graph if we're using SI, so we can compute parameter importance later
-        # This is important when the same graph is used for multiple backward passes
-        retain_graph = self.use_si
-        
-        inference_loss.backward(retain_graph=retain_graph)
-        
-        torch.nn.utils.clip_grad_norm_(
-            self.encoder.parameters(),
-            max_norm=1.0
-        )
-        
-        self.encoder_optimizer.step()
-        
-        # Update SI trackers for encoder if using SI
-        if self.use_si and hasattr(self, 'inference_si'):
-            self.inference_si.update_tracker(inference_loss.item())
+        if self.use_gnn:
+            torch.nn.utils.clip_grad_norm_(
+                self.inference_module.parameters(), 
+                max_norm=1.0
+            )
+        else:
+            torch.nn.utils.clip_grad_norm_(
+                list(self.encoder.parameters()) + list(self.decoder.parameters()), 
+                max_norm=1.0
+            )
             
+        self.inference_optimizer.step()
+        
         return inference_loss.item()
     
     def _calculate_temporal_kl_divergence(self, means_seq, logvars_seq):
@@ -658,10 +601,6 @@ class POLARISAgent:
         q1 = self.q_network1(beliefs, latents, neighbor_actions).gather(1, actions.unsqueeze(1))
         q2 = self.q_network2(beliefs, latents, neighbor_actions).gather(1, actions.unsqueeze(1))
         
-        # Debug shapes
-        print(f"Agent {self.agent_id}: critic q shapes:")
-        print(f"  q1 shape: {q1.shape}")
-        
         # Compute next action probabilities
         with torch.no_grad():
             # Calculate fresh action logits for critic update
@@ -677,66 +616,8 @@ class POLARISAgent:
             # Take minimum
             next_q = torch.min(next_q1, next_q2)
             
-            # Debug print tensor shapes
-            print(f"Agent {self.agent_id}: _update_critics tensor shapes:")
-            print(f"  next_action_probs shape: {next_action_probs.shape}")
-            print(f"  next_q shape: {next_q.shape}")
-            print(f"  rewards shape: {rewards.shape}")
-            
-            # Make sure tensor dimensions match before computing expected_q
-            # Handle 3D next_action_probs
-            if next_action_probs.dim() == 3:
-                # If it has shape [batch_size, 2, 2], squeeze or reshape
-                if next_action_probs.shape[1] == 2 and next_action_probs.shape[2] == 2:
-                    # Take the first dimension as the batch, and the second dimension as the action dim
-                    next_action_probs = next_action_probs[:, 0, :]
-                    print(f"  Reshaped next_action_probs shape: {next_action_probs.shape}")
-            
-            # Handle if dimensions still don't match
-            if next_action_probs.shape[1] != next_q.shape[1]:
-                # If next_q has shape [batch_size, 1, action_dim], squeeze the middle dimension
-                if next_q.dim() == 3:
-                    next_q = next_q.squeeze(1)
-                
-                # If shapes still don't match, try to expand next_q to match next_action_probs
-                if next_action_probs.shape[1] != next_q.shape[1]:
-                    batch_size = next_action_probs.shape[0]
-                    action_dim = next_action_probs.shape[1]
-                    
-                    # Create a new tensor of the right shape, filled with zeros
-                    expanded_next_q = torch.zeros((batch_size, action_dim), device=self.device)
-                    
-                    # Fill with values from next_q where possible
-                    for i in range(min(action_dim, next_q.shape[1])):
-                        expanded_next_q[:, i] = next_q[:, i]
-                    
-                    next_q = expanded_next_q
-                    print(f"  Expanded next_q shape: {next_q.shape}")
-            
             # Expected Q-value
             expected_q = (next_action_probs * next_q).sum(dim=1, keepdim=True)
-            print(f"  expected_q shape: {expected_q.shape}")
-            
-            # Make sure rewards has the right shape
-            if rewards.shape != expected_q.shape:
-                # If rewards has shape [batch_size] and expected_q has shape [batch_size, 1], add a dimension
-                if rewards.dim() == 1 and expected_q.dim() == 2:
-                    rewards = rewards.unsqueeze(1)
-                    print(f"  Reshaped rewards shape: {rewards.shape}")
-                
-                # If there's still a mismatch, try to reshape rewards to match expected_q
-                if rewards.shape != expected_q.shape:
-                    batch_size = expected_q.shape[0]
-                    # Create a new tensor of the right shape
-                    reshaped_rewards = torch.zeros_like(expected_q)
-                    # Fill with values from rewards where possible
-                    for i in range(min(batch_size, rewards.shape[0])):
-                        if rewards.dim() == 1:
-                            reshaped_rewards[i, 0] = rewards[i]
-                        else:
-                            reshaped_rewards[i, 0] = rewards[i, 0]
-                    rewards = reshaped_rewards
-                    print(f"  Fully reshaped rewards shape: {rewards.shape}")
             
             # Add entropy
             expected_q = expected_q + self.entropy_weight * entropy
@@ -746,37 +627,6 @@ class POLARISAgent:
                 target_q = rewards + self.discount_factor * expected_q
             else:  # Average reward
                 target_q = rewards - self.gain_parameter + expected_q
-            
-            # Ensure target_q has the same shape as q1 and q2
-            if target_q.shape != q1.shape:
-                print(f"  target_q shape before reshape: {target_q.shape}, q1 shape: {q1.shape}")
-                
-                # Simpler approach: just create a new tensor with the correct shape and copy values
-                batch_size = q1.shape[0]
-                reshaped_target_q = torch.zeros_like(q1)
-                
-                # Handle different target_q dimensions
-                if target_q.dim() == 2 and q1.dim() == 2:
-                    # Both are 2D, just copy the values directly if shapes are compatible
-                    # E.g., target_q: [8, 1], q1: [8, 1]
-                    if target_q.shape[0] == q1.shape[0]:
-                        for i in range(batch_size):
-                            reshaped_target_q[i, 0] = target_q[i, 0]
-                
-                elif target_q.dim() == 3 and q1.dim() == 2:
-                    # target_q is 3D, q1 is 2D
-                    # E.g., target_q: [8, 8, 2], q1: [8, 1]
-                    # Just take the first element from each batch
-                    for i in range(min(batch_size, target_q.shape[0])):
-                        reshaped_target_q[i, 0] = target_q[i, 0, 0]
-                
-                # If all else fails, just use the original q1 values (this is a fallback)
-                if torch.all(reshaped_target_q == 0):
-                    print("  Failed to reshape target_q, using original q1 values")
-                    reshaped_target_q = q1.detach()
-                
-                target_q = reshaped_target_q
-                print(f"  Reshaped target_q shape: {target_q.shape}")
         
         # Compute loss
         q1_loss = F.mse_loss(q1, target_q)
@@ -801,81 +651,100 @@ class POLARISAgent:
         return q_loss.item()
     
     def _update_policy(self, beliefs, latents, actions, neighbor_actions):
-        """Update policy network."""
-        print(f"Agent {self.agent_id}: Updating policy network (beliefs shape: {beliefs.shape})")
+        """Update policy network and calculate advantage for Transformer training.
         
-        # Zero gradients
+        Returns:
+            Tuple of (policy_loss_value, advantage)
+        """
+        # Generate fresh action logits for the batch
+        action_logits = self.policy(beliefs, latents)
+        
+        # Calculate probabilities from the logits
+        action_probs = F.softmax(action_logits, dim=1)
+        log_probs = F.log_softmax(action_logits, dim=1)
+        
+        # Compute entropy
+        entropy = -torch.sum(action_probs * log_probs, dim=1, keepdim=True)
+        
+        # Get Q-values
+        with torch.no_grad():
+            q1 = self.q_network1(beliefs, latents, neighbor_actions)
+            q2 = self.q_network2(beliefs, latents, neighbor_actions)
+            q = torch.min(q1, q2)
+        
+        # Compute expected Q-value
+        expected_q = torch.sum(action_probs * q, dim=1, keepdim=True)
+        
+        # Policy loss is negative of expected Q-value plus entropy
+        policy_loss = -(expected_q + self.entropy_weight * entropy).mean()
+        
+        # Add SI loss if enabled
+        si_loss = 0.0
+        if self.use_si and self.path_integrals_calculated:
+            si_loss = self.policy_si.calculate_loss()
+            policy_loss += si_loss
+            if hasattr(self, 'si_debug_counter'):
+                self.si_debug_counter += 1
+                if self.si_debug_counter % 100 == 0:
+                    print(f"Agent {self.agent_id} Policy SI Loss: {si_loss.item():.6f}, Main Loss: {policy_loss.item():.6f}")
+        
+        # Calculate advantage for Transformer training
+        # Advantage is Q-value of taken action minus expected Q-value (baseline)
+        q_actions = q.gather(1, actions.unsqueeze(1))
+        advantage = q_actions - expected_q.detach()
+        
+        # Update policy
         self.policy_optimizer.zero_grad()
-        
-        # Compute the base policy loss
-        policy_loss = self._compute_policy_loss(beliefs, latents, actions)
-        
-        # Calculate SI loss for policy if using SI
-        si_policy_loss = torch.tensor(0.0, device=self.device)
-        if self.use_si and hasattr(self, 'policy_si'):
-            si_policy_loss = self.policy_si.calculate_loss()
-            
-        # Combine losses
-        combined_loss = policy_loss + si_policy_loss
-        
-        # We need to retain the graph if we're using SI, so we can compute parameter importance later
-        retain_graph = self.use_si
-        
-        # Backward pass
-        combined_loss.backward(retain_graph=retain_graph)
-        
-        # Clip gradients
-        torch.nn.utils.clip_grad_norm_(
-            self.policy.parameters(),
-            max_norm=1.0
-        )
-        
-        # Update
+        policy_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=1.0)
         self.policy_optimizer.step()
         
-        # Update SI trackers for policy if using SI
-        if self.use_si and hasattr(self, 'policy_si'):
-            print(f"Agent {self.agent_id}: Updated policy SI tracker (step {self.policy_si.step_count}, loss: {policy_loss.item():.6f})")
-            self.policy_si.update_tracker(policy_loss.item())
-            
-        return policy_loss.item()
+        return policy_loss.item(), advantage
     
-    def _update_transformer(self, signals, neighbor_actions, beliefs, next_signals):
-        """Update belief processor using transformer model."""
-        # Zero gradients
-        self.transformer_optimizer.zero_grad()
+    def _update_transformer(self, signals, neighbor_actions, beliefs, 
+                next_signals):
+        """
+        Update belief processor (Transformer) by optimizing for next state prediction.
         
-        # Compute the base belief loss
-        belief_loss = self._compute_belief_loss(signals, neighbor_actions, beliefs, next_signals)
+        Args:
+            signals: Current signals/observations
+            neighbor_actions: Current neighbor actions
+            beliefs: Current belief states
+            latents: Current latent states
+            actions: Actions taken
+            next_signals: Next signals/observations
         
-        # Calculate SI loss for belief processor if using SI
-        si_belief_loss = torch.tensor(0.0, device=self.device)
-        if self.use_si and hasattr(self, 'belief_si'):
-            si_belief_loss = self.belief_si.calculate_loss()
-            
-        # Combine losses
-        combined_loss = belief_loss + si_belief_loss
-        
-        # We need to retain the graph if we're using SI, so we can compute parameter importance later
-        retain_graph = self.use_si
-        
-        # Backward pass
-        combined_loss.backward(retain_graph=retain_graph)
-        
-        # Clip gradients
-        torch.nn.utils.clip_grad_norm_(
-            self.belief_processor.parameters(),
-            max_norm=1.0
+        Returns:
+            float: Loss value
+        """
+        # Process current signals and neighbor actions through Transformer to get next belief
+        _, belief_distributions = self.belief_processor(
+            signals, neighbor_actions, beliefs
         )
         
-        # Update
+        # The belief distribution should predict the next observation (signal)
+        # Log likelihood of next signal given current belief
+        # Use belief distribution as prediction of next signal
+        transformer_loss = F.binary_cross_entropy(
+            belief_distributions, next_signals, reduction='none'
+        ).sum(dim=1).mean()
+        
+        # Add SI loss if enabled
+        si_loss = 0.0
+        if self.use_si and self.path_integrals_calculated:
+            si_loss = self.belief_si.calculate_loss()
+            transformer_loss += si_loss
+            if hasattr(self, 'si_debug_counter'):
+                if self.si_debug_counter % 100 == 0:
+                    print(f"Agent {self.agent_id} Belief SI Loss: {si_loss.item():.6f}, Main Loss: {transformer_loss.item():.6f}")
+                
+        # Update Transformer parameters
+        self.transformer_optimizer.zero_grad()
+        transformer_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.belief_processor.parameters(), max_norm=1.0)
         self.transformer_optimizer.step()
         
-        # Update SI trackers for belief processor if using SI
-        if self.use_si and hasattr(self, 'belief_si'):
-            self.belief_si.update_tracker(belief_loss.item())
-            
-        return belief_loss.item()
+        return transformer_loss.item()
     
     def _update_targets(self):
         """Update target networks."""
@@ -1056,45 +925,132 @@ class POLARISAgent:
         
     def calculate_path_integrals(self, replay_buffer):
         """
-        Register path integrals accumulated during training.
-        
-        This method is called when a new task is detected.
-        Instead of recalculating path integrals from the replay buffer,
-        it uses the accumulated path integrals from the backward passes
-        during the regular training.
+        Calculate Path Integrals for belief processor and policy networks
+        using data from the replay buffer.
         
         Args:
-            replay_buffer: Optional replay buffer (not used in this implementation)
+            replay_buffer: The replay buffer containing transitions
         """
-        if not self.use_si:
+        if replay_buffer is None:
+            print(f"Agent {self.agent_id}: No replay buffer provided. Skipping Path Integrals calculation.")
             return
-            
-        if not hasattr(self, 'belief_si') or not hasattr(self, 'policy_si'):
-            print(f"Agent {self.agent_id}: SI trackers not initialized. Skipping path integral registration.")
-            return
-            
-        print(f"Agent {self.agent_id}: Registering accumulated path integrals")
-        print(f"Belief network updates: {self.belief_si_step_count}, avg loss: {self.accumulated_belief_loss/max(1, self.belief_si_step_count):.6f}")
-        print(f"Policy network updates: {self.policy_si_step_count}, avg loss: {self.accumulated_policy_loss/max(1, self.policy_si_step_count):.6f}")
         
-        # Calculate average parameter change magnitudes
+        # Check if replay buffer has enough samples
+        if len(replay_buffer) < 100:  # Arbitrary threshold, but we need some minimum amount of data
+            print(f"Agent {self.agent_id}: Replay buffer has only {len(replay_buffer)} samples, "
+                  f"which may not be enough for reliable path integral calculation.")
+        
+        print(f"Agent {self.agent_id}: Calculating path integrals with {len(replay_buffer)} transitions")
+        
+        # Define loss functions for Path Integrals calculation
+        def belief_loss_fn(model, batch):
+            signals, neighbor_actions, beliefs, _, _, _, next_signals, _, _, _, _ = batch
+            
+            # Ensure all tensors are on the correct device and have gradients
+            signals = signals.to(self.device)
+            neighbor_actions = neighbor_actions.to(self.device)
+            beliefs = beliefs.to(self.device)
+            next_signals = next_signals.to(self.device)
+            
+            # Forward pass
+            _, belief_distributions = model(signals, neighbor_actions, beliefs)
+            
+            # Calculate loss
+            loss = F.binary_cross_entropy(belief_distributions, next_signals, reduction='mean')
+            loss.requires_grad_(True)
+            
+            return loss
+        
+        def policy_loss_fn(model, batch):
+            _, _, beliefs, latents, actions, _, _, _, _, _, _ = batch
+            
+            # Ensure all tensors are on the correct device and have gradients
+            beliefs = beliefs.to(self.device)
+            latents = latents.to(self.device)
+            actions = actions.to(self.device)
+            
+            # Forward pass
+            action_logits = model(beliefs, latents)
+            
+            # Calculate loss
+            loss = F.cross_entropy(action_logits, actions)
+            loss.requires_grad_(True)
+            return loss
+        
+        # Check if parameters are changing during training
+        # First, take a snapshot of current parameters
+        belief_params_before = {name: param.clone().detach() for name, param in self.belief_processor.named_parameters() if param.requires_grad}
+        policy_params_before = {name: param.clone().detach() for name, param in self.policy.named_parameters() if param.requires_grad}
+        
+        # Calculate Path Integrals
+        belief_tracker, belief_path_integrals = calculate_path_integral_from_replay_buffer(
+            model=self.belief_processor,
+            replay_buffer=replay_buffer,
+            loss_fn=belief_loss_fn,
+            optimizer=self.transformer_optimizer,
+            device=self.device,
+            batch_size=64,
+            num_batches=20  # Increase from 10 to get more training steps
+        )
+        
+        policy_tracker, policy_path_integrals = calculate_path_integral_from_replay_buffer(
+            model=self.policy,
+            replay_buffer=replay_buffer,
+            loss_fn=policy_loss_fn,
+            optimizer=self.policy_optimizer,
+            device=self.device,
+            batch_size=64,
+            num_batches=20  # Increase from 10 to get more training steps
+        )
+        
+        # Check if parameters have actually changed during path integral calculation
+        has_belief_params_changed = False
+        has_policy_params_changed = False
+        
+        # Calculate total parameter change magnitude for belief network
         belief_param_change_magnitude = 0.0
         for name, param in self.belief_processor.named_parameters():
-            if param.requires_grad and name in self.belief_si.previous_params:
-                param_diff = torch.sum(torch.abs(param.data - self.belief_si.previous_params[name])).item()
+            if param.requires_grad and name in belief_params_before:
+                param_diff = torch.sum(torch.abs(param.data - belief_params_before[name])).item()
                 belief_param_change_magnitude += param_diff
+                if param_diff > 0.0:
+                    has_belief_params_changed = True
         
+        # Calculate total parameter change magnitude for policy network
         policy_param_change_magnitude = 0.0
         for name, param in self.policy.named_parameters():
-            if param.requires_grad and name in self.policy_si.previous_params:
-                param_diff = torch.sum(torch.abs(param.data - self.policy_si.previous_params[name])).item()
+            if param.requires_grad and name in policy_params_before:
+                param_diff = torch.sum(torch.abs(param.data - policy_params_before[name])).item()
                 policy_param_change_magnitude += param_diff
-                
-        print(f"Parameter change magnitudes - Belief: {belief_param_change_magnitude:.6f}, Policy: {policy_param_change_magnitude:.6f}")
+                if param_diff > 0.0:
+                    has_policy_params_changed = True
         
+        if not has_belief_params_changed:
+            print(f"WARNING: Belief processor parameters did not change during path integral calculation!")
+            print(f"This will result in zero importance scores. Try increasing the learning rate.")
+        
+        if not has_policy_params_changed:
+            print(f"WARNING: Policy parameters did not change during path integral calculation!")
+            print(f"This will result in zero importance scores. Try increasing the learning rate.")
+        
+        # Check path integral values before registering
+        sum_belief_path_integrals = sum(torch.sum(torch.abs(pi)).item() for pi in belief_path_integrals.values())
+        sum_policy_path_integrals = sum(torch.sum(torch.abs(pi)).item() for pi in policy_path_integrals.values())
+        
+        print(f"Sum of belief path integrals: {sum_belief_path_integrals:.8f}")
+        print(f"Sum of policy path integrals: {sum_policy_path_integrals:.8f}")
+        
+        if sum_belief_path_integrals < 1e-8:
+            print(f"WARNING: Belief path integrals are nearly zero!")
+        
+        if sum_policy_path_integrals < 1e-8:
+            print(f"WARNING: Policy path integrals are nearly zero!")
+            
         # Apply dynamic importance scaling based on parameter change magnitude
+        # The idea is to scale the importance inversely to the parameter change magnitude
+        # so that tasks with larger parameter changes don't dominate
         current_true_state = self.current_true_state
-        print(f"Current true state: {current_true_state}")
+        print(f"Current true state: {current_true_state}, Parameter change magnitudes - Belief: {belief_param_change_magnitude:.6f}, Policy: {policy_param_change_magnitude:.6f}")
         
         # Get the base importance value
         base_importance = self.si_importance
@@ -1102,17 +1058,22 @@ class POLARISAgent:
         # If we've seen other tasks before, adjust the importance scaling
         if len(self.seen_true_states) > 0:
             # Calculate scaling factor inversely proportional to parameter change magnitude
+            # We use a reference value of 1.0 for the first task
             if hasattr(self, 'reference_belief_change') and self.reference_belief_change > 0:
                 belief_scale = self.reference_belief_change / max(belief_param_change_magnitude, 1e-10)
+                # Limit the scaling factor to a reasonable range
                 belief_scale = min(max(belief_scale, 0.1), 10.0)
             else:
+                # First task, set reference and use scale of 1.0
                 self.reference_belief_change = belief_param_change_magnitude
                 belief_scale = 1.0
                 
             if hasattr(self, 'reference_policy_change') and self.reference_policy_change > 0:
                 policy_scale = self.reference_policy_change / max(policy_param_change_magnitude, 1e-10)
+                # Limit the scaling factor to a reasonable range
                 policy_scale = min(max(policy_scale, 0.1), 10.0)
             else:
+                # First task, set reference and use scale of 1.0
                 self.reference_policy_change = policy_param_change_magnitude
                 policy_scale = 1.0
                 
@@ -1124,25 +1085,29 @@ class POLARISAgent:
                   f"Policy: {policy_scale:.4f} (adjusted importance: {policy_importance:.4f})")
             
             # Update the tracker importance values
-            self.belief_si.importance = belief_importance
-            self.policy_si.importance = policy_importance
+            belief_tracker.importance = belief_importance
+            policy_tracker.importance = policy_importance
         else:
             # First task encountered - save reference values
             self.reference_belief_change = belief_param_change_magnitude
             self.reference_policy_change = policy_param_change_magnitude
-            print(f"First task encountered, setting reference parameter change values")
+            print(f"First task encountered, setting reference parameter change values - Belief: {self.reference_belief_change:.6f}, Policy: {self.reference_policy_change:.6f}")
         
         # Register tasks with SI (this uses the accumulated path integrals in the trackers)
-        self.belief_si.register_task()
-        self.policy_si.register_task()
+        belief_tracker.register_task()
+        policy_tracker.register_task()
+        
+        # Replace our existing SI instances with the trained trackers
+        self.belief_si = belief_tracker
+        self.policy_si = policy_tracker
         
         # Store task-specific trackers for visualization and comparison across tasks
         if hasattr(self, 'current_true_state') and self.current_true_state is not None:
             print(f"Storing SI trackers for true state {self.current_true_state}")
             
             # Create copies of the trackers so they don't get modified as we continue training
-            self.state_belief_si_trackers[self.current_true_state] = self._clone_si_tracker(self.belief_si)
-            self.state_policy_si_trackers[self.current_true_state] = self._clone_si_tracker(self.policy_si)
+            self.state_belief_si_trackers[self.current_true_state] = self._clone_si_tracker(belief_tracker)
+            self.state_policy_si_trackers[self.current_true_state] = self._clone_si_tracker(policy_tracker)
         
         # Verify the importance scores after registration
         sum_belief_importance = sum(torch.sum(torch.abs(imp)).item() 
@@ -1153,13 +1118,12 @@ class POLARISAgent:
         print(f"Sum of belief importance scores after registration: {sum_belief_importance:.8f}")
         print(f"Sum of policy importance scores after registration: {sum_policy_importance:.8f}")
         
-        # Reset counters for next task
-        self.belief_si_step_count = 0
-        self.policy_si_step_count = 0
-        self.accumulated_belief_loss = 0
-        self.accumulated_policy_loss = 0
+        if sum_belief_importance < 1e-8 or sum_policy_importance < 1e-8:
+            print(f"WARNING: Some importance scores are still near zero after registration.")
+            print(f"This might indicate an issue with the SI implementation or training dynamics.")
         
         self.path_integrals_calculated = True
+        print(f"Agent {self.agent_id}: Path Integrals calculated and registered with SI")
     
     def _clone_si_tracker(self, tracker):
         """Create a deep copy of an SI tracker for state comparison."""
@@ -1168,7 +1132,6 @@ class POLARISAgent:
             model=tracker.model,
             importance=tracker.importance,
             damping=tracker.damping,
-            exclude_layers=tracker.exclude_layers,
             device=tracker.device
         )
         

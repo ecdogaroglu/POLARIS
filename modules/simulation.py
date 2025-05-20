@@ -224,10 +224,10 @@ def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, train
                 for agent_id, agent in agents.items():
                     if hasattr(agent, 'use_si') and agent.use_si and hasattr(agent, 'seen_true_states'):
                         if current_true_state not in agent.seen_true_states:
-                            # We have a new true state, register the accumulated path integrals
-                            print(f"New true state {current_true_state} detected. Registering path integrals for agent {agent_id}...")
-                            # We don't need the replay buffer anymore, the path integrals are accumulated during training
-                            agent.calculate_path_integrals(None)
+                            # We have a new true state, calculate Path Integrals
+                            if agent_id in replay_buffers:
+                                print(f"New true state {current_true_state} detected. Calculating Path Integrals for agent {agent_id}...")
+                                agent.calculate_path_integrals(replay_buffers[agent_id])
                         
                         # Add current true state to the set of seen states
                         agent.seen_true_states.add(current_true_state)
@@ -326,15 +326,10 @@ def update_agent_states(agents, observations, next_observations, actions, reward
             
             # Update networks if enough samples
             if len(replay_buffers[agent_id]) > args.batch_size and step % args.update_interval == 0:
-                print(f"Step {step}: Sampling batch for agent {agent_id} (buffer size: {len(replay_buffers[agent_id])})")
                 # Sample a batch from the replay buffer
                 batch = replay_buffers[agent_id].sample(args.batch_size)
-                if batch is not None:
-                    print(f"Step {step}: Updating agent {agent_id} with batch")
-                    # Update network parameters
-                    agent.update(batch)
-                else:
-                    print(f"Step {step}: Failed to sample batch for agent {agent_id}")
+                # Update network parameters
+                agent.update(batch)
 
 def initialize_agents(env, args, obs_dim):
     """Initialize POLARIS agents."""
