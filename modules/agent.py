@@ -696,8 +696,17 @@ class POLARISAgent:
         # Update policy
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
+        
+        # Update SI trajectory before optimizer step
+        if self.use_si:
+            self.policy_si.update_trajectory()
+            
         torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=1.0)
         self.policy_optimizer.step()
+        
+        # Update SI trajectory after optimizer step
+        if self.use_si:
+            self.policy_si.update_trajectory_post_step()
         
         return policy_loss.item(), advantage
     
@@ -741,8 +750,17 @@ class POLARISAgent:
         # Update Transformer parameters
         self.transformer_optimizer.zero_grad()
         transformer_loss.backward()
+        
+        # Update SI trajectory before optimizer step
+        if self.use_si:
+            self.belief_si.update_trajectory()
+            
         torch.nn.utils.clip_grad_norm_(self.belief_processor.parameters(), max_norm=1.0)
         self.transformer_optimizer.step()
+        
+        # Update SI trajectory after optimizer step
+        if self.use_si:
+            self.belief_si.update_trajectory_post_step()
         
         return transformer_loss.item()
     
@@ -925,205 +943,34 @@ class POLARISAgent:
         
     def calculate_path_integrals(self, replay_buffer):
         """
-        Calculate Path Integrals for belief processor and policy networks
-        using data from the replay buffer.
+        Legacy method for compatibility. Use register_task() for online tracking instead.
+        This method may be called when transitioning to a new task in simulation.
         
         Args:
-            replay_buffer: The replay buffer containing transitions
+            replay_buffer: The replay buffer containing transitions (not used)
         """
-        if replay_buffer is None:
-            print(f"Agent {self.agent_id}: No replay buffer provided. Skipping Path Integrals calculation.")
+        if not self.use_si:
+            print(f"Agent {self.agent_id}: SI not enabled. Skipping.")
             return
         
-        # Check if replay buffer has enough samples
-        if len(replay_buffer) < 100:  # Arbitrary threshold, but we need some minimum amount of data
-            print(f"Agent {self.agent_id}: Replay buffer has only {len(replay_buffer)} samples, "
-                  f"which may not be enough for reliable path integral calculation.")
+        print(f"Agent {self.agent_id}: Using online path integral tracking instead of replay buffer.")
         
-        print(f"Agent {self.agent_id}: Calculating path integrals with {len(replay_buffer)} transitions")
-        
-        # Define loss functions for Path Integrals calculation
-        def belief_loss_fn(model, batch):
-            signals, neighbor_actions, beliefs, _, _, _, next_signals, _, _, _, _ = batch
+        # Register the current task if not done already
+        if hasattr(self, 'belief_si') and hasattr(self, 'policy_si'):
+            if self.current_true_state is not None:
+                print(f"Registering task for true state {self.current_true_state}")
+                self.belief_si.register_task()
+                self.policy_si.register_task()
             
-            # Ensure all tensors are on the correct device and have gradients
-            signals = signals.to(self.device)
-            neighbor_actions = neighbor_actions.to(self.device)
-            beliefs = beliefs.to(self.device)
-            next_signals = next_signals.to(self.device)
-            
-            # Forward pass
-            _, belief_distributions = model(signals, neighbor_actions, beliefs)
-            
-            # Calculate loss
-            loss = F.binary_cross_entropy(belief_distributions, next_signals, reduction='mean')
-            loss.requires_grad_(True)
-            
-            return loss
+            # Create copies of the trackers for visualization and comparison
+            if hasattr(self, 'current_true_state') and self.current_true_state is not None:
+                print(f"Storing SI trackers for true state {self.current_true_state}")
+                self.state_belief_si_trackers[self.current_true_state] = self._clone_si_tracker(self.belief_si)
+                self.state_policy_si_trackers[self.current_true_state] = self._clone_si_tracker(self.policy_si)
         
-        def policy_loss_fn(model, batch):
-            _, _, beliefs, latents, actions, _, _, _, _, _, _ = batch
-            
-            # Ensure all tensors are on the correct device and have gradients
-            beliefs = beliefs.to(self.device)
-            latents = latents.to(self.device)
-            actions = actions.to(self.device)
-            
-            # Forward pass
-            action_logits = model(beliefs, latents)
-            
-            # Calculate loss
-            loss = F.cross_entropy(action_logits, actions)
-            loss.requires_grad_(True)
-            return loss
-        
-        # Check if parameters are changing during training
-        # First, take a snapshot of current parameters
-        belief_params_before = {name: param.clone().detach() for name, param in self.belief_processor.named_parameters() if param.requires_grad}
-        policy_params_before = {name: param.clone().detach() for name, param in self.policy.named_parameters() if param.requires_grad}
-        
-        # Calculate Path Integrals
-        belief_tracker, belief_path_integrals = calculate_path_integral_from_replay_buffer(
-            model=self.belief_processor,
-            replay_buffer=replay_buffer,
-            loss_fn=belief_loss_fn,
-            optimizer=self.transformer_optimizer,
-            device=self.device,
-            batch_size=64,
-            num_batches=20  # Increase from 10 to get more training steps
-        )
-        
-        policy_tracker, policy_path_integrals = calculate_path_integral_from_replay_buffer(
-            model=self.policy,
-            replay_buffer=replay_buffer,
-            loss_fn=policy_loss_fn,
-            optimizer=self.policy_optimizer,
-            device=self.device,
-            batch_size=64,
-            num_batches=20  # Increase from 10 to get more training steps
-        )
-        
-        # Check if parameters have actually changed during path integral calculation
-        has_belief_params_changed = False
-        has_policy_params_changed = False
-        
-        # Calculate total parameter change magnitude for belief network
-        belief_param_change_magnitude = 0.0
-        for name, param in self.belief_processor.named_parameters():
-            if param.requires_grad and name in belief_params_before:
-                param_diff = torch.sum(torch.abs(param.data - belief_params_before[name])).item()
-                belief_param_change_magnitude += param_diff
-                if param_diff > 0.0:
-                    has_belief_params_changed = True
-        
-        # Calculate total parameter change magnitude for policy network
-        policy_param_change_magnitude = 0.0
-        for name, param in self.policy.named_parameters():
-            if param.requires_grad and name in policy_params_before:
-                param_diff = torch.sum(torch.abs(param.data - policy_params_before[name])).item()
-                policy_param_change_magnitude += param_diff
-                if param_diff > 0.0:
-                    has_policy_params_changed = True
-        
-        if not has_belief_params_changed:
-            print(f"WARNING: Belief processor parameters did not change during path integral calculation!")
-            print(f"This will result in zero importance scores. Try increasing the learning rate.")
-        
-        if not has_policy_params_changed:
-            print(f"WARNING: Policy parameters did not change during path integral calculation!")
-            print(f"This will result in zero importance scores. Try increasing the learning rate.")
-        
-        # Check path integral values before registering
-        sum_belief_path_integrals = sum(torch.sum(torch.abs(pi)).item() for pi in belief_path_integrals.values())
-        sum_policy_path_integrals = sum(torch.sum(torch.abs(pi)).item() for pi in policy_path_integrals.values())
-        
-        print(f"Sum of belief path integrals: {sum_belief_path_integrals:.8f}")
-        print(f"Sum of policy path integrals: {sum_policy_path_integrals:.8f}")
-        
-        if sum_belief_path_integrals < 1e-8:
-            print(f"WARNING: Belief path integrals are nearly zero!")
-        
-        if sum_policy_path_integrals < 1e-8:
-            print(f"WARNING: Policy path integrals are nearly zero!")
-            
-        # Apply dynamic importance scaling based on parameter change magnitude
-        # The idea is to scale the importance inversely to the parameter change magnitude
-        # so that tasks with larger parameter changes don't dominate
-        current_true_state = self.current_true_state
-        print(f"Current true state: {current_true_state}, Parameter change magnitudes - Belief: {belief_param_change_magnitude:.6f}, Policy: {policy_param_change_magnitude:.6f}")
-        
-        # Get the base importance value
-        base_importance = self.si_importance
-        
-        # If we've seen other tasks before, adjust the importance scaling
-        if len(self.seen_true_states) > 0:
-            # Calculate scaling factor inversely proportional to parameter change magnitude
-            # We use a reference value of 1.0 for the first task
-            if hasattr(self, 'reference_belief_change') and self.reference_belief_change > 0:
-                belief_scale = self.reference_belief_change / max(belief_param_change_magnitude, 1e-10)
-                # Limit the scaling factor to a reasonable range
-                belief_scale = min(max(belief_scale, 0.1), 10.0)
-            else:
-                # First task, set reference and use scale of 1.0
-                self.reference_belief_change = belief_param_change_magnitude
-                belief_scale = 1.0
-                
-            if hasattr(self, 'reference_policy_change') and self.reference_policy_change > 0:
-                policy_scale = self.reference_policy_change / max(policy_param_change_magnitude, 1e-10)
-                # Limit the scaling factor to a reasonable range
-                policy_scale = min(max(policy_scale, 0.1), 10.0)
-            else:
-                # First task, set reference and use scale of 1.0
-                self.reference_policy_change = policy_param_change_magnitude
-                policy_scale = 1.0
-                
-            # Apply scaling to importance
-            belief_importance = base_importance * belief_scale
-            policy_importance = base_importance * policy_scale
-            
-            print(f"Applying dynamic importance scaling - Belief: {belief_scale:.4f} (adjusted importance: {belief_importance:.4f}), "
-                  f"Policy: {policy_scale:.4f} (adjusted importance: {policy_importance:.4f})")
-            
-            # Update the tracker importance values
-            belief_tracker.importance = belief_importance
-            policy_tracker.importance = policy_importance
-        else:
-            # First task encountered - save reference values
-            self.reference_belief_change = belief_param_change_magnitude
-            self.reference_policy_change = policy_param_change_magnitude
-            print(f"First task encountered, setting reference parameter change values - Belief: {self.reference_belief_change:.6f}, Policy: {self.reference_policy_change:.6f}")
-        
-        # Register tasks with SI (this uses the accumulated path integrals in the trackers)
-        belief_tracker.register_task()
-        policy_tracker.register_task()
-        
-        # Replace our existing SI instances with the trained trackers
-        self.belief_si = belief_tracker
-        self.policy_si = policy_tracker
-        
-        # Store task-specific trackers for visualization and comparison across tasks
-        if hasattr(self, 'current_true_state') and self.current_true_state is not None:
-            print(f"Storing SI trackers for true state {self.current_true_state}")
-            
-            # Create copies of the trackers so they don't get modified as we continue training
-            self.state_belief_si_trackers[self.current_true_state] = self._clone_si_tracker(belief_tracker)
-            self.state_policy_si_trackers[self.current_true_state] = self._clone_si_tracker(policy_tracker)
-        
-        # Verify the importance scores after registration
-        sum_belief_importance = sum(torch.sum(torch.abs(imp)).item() 
-                                   for name, imp in self.belief_si.importance_scores.items())
-        sum_policy_importance = sum(torch.sum(torch.abs(imp)).item() 
-                                   for name, imp in self.policy_si.importance_scores.items())
-        
-        print(f"Sum of belief importance scores after registration: {sum_belief_importance:.8f}")
-        print(f"Sum of policy importance scores after registration: {sum_policy_importance:.8f}")
-        
-        if sum_belief_importance < 1e-8 or sum_policy_importance < 1e-8:
-            print(f"WARNING: Some importance scores are still near zero after registration.")
-            print(f"This might indicate an issue with the SI implementation or training dynamics.")
-        
+        # Mark that this agent is using SI
         self.path_integrals_calculated = True
-        print(f"Agent {self.agent_id}: Path Integrals calculated and registered with SI")
+        print(f"Agent {self.agent_id}: Online SI tracking enabled.")
     
     def _clone_si_tracker(self, tracker):
         """Create a deep copy of an SI tracker for state comparison."""

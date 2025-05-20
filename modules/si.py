@@ -17,7 +17,10 @@ class SILoss:
     Synaptic Intelligence (SI) loss for preventing catastrophic forgetting.
     
     SI calculates parameter importance based on the path parameters take during training,
-    rather than using Fisher Information Matrix (as in EWC).
+    tracking it online during the normal optimization process, rather than requiring separate
+    backward passes through a replay buffer.
+    
+    Based on the paper: "Continual Learning Through Synaptic Intelligence" (Zenke et al., 2017)
     """
     
     def __init__(
@@ -48,7 +51,10 @@ class SILoss:
         self.previous_params = {}
         self.importance_scores = {}
         self.param_path_integrals = {}  # Accumulated gradient * parameter change
-        self.param_trajectories = {}    # Accumulated parameter change from start of training
+        
+        # For new online trajectory tracking
+        self.prev_params_per_step = {}  # Parameter values at the previous step
+        self.current_task_id = None
         
         # Store parameter names for easier access
         self.param_names = [name for name, _ in model.named_parameters() if _.requires_grad]
@@ -66,40 +72,94 @@ class SILoss:
                     
                 # Clone the parameter to avoid reference issues
                 self.previous_params[name] = param.data.clone()
+                self.prev_params_per_step[name] = param.data.clone()
+                
                 # Initialize path integral to zero
                 self.param_path_integrals[name] = torch.zeros_like(param.data).to(self.device)
-                # Initialize importance to zero (or small value)
+                
+                # Initialize importance to zero
                 self.importance_scores[name] = torch.zeros_like(param.data).to(self.device)
+    
+    def set_task(self, task_id):
+        """
+        Set the current task for importance tracking. Call this whenever the task changes.
+        
+        Args:
+            task_id: Identifier for the current task (e.g., environment state)
+        """
+        # If switching to a new task, compute importances for previous task before resetting
+        if self.current_task_id is not None and self.current_task_id != task_id:
+            self.register_task()
+            
+        # Update the current task
+        self.current_task_id = task_id
+        
+        # Reset path integrals for the new task
+        for name in self.param_path_integrals:
+            self.param_path_integrals[name].zero_()
+            
+        # Update previous parameters to current values for the new task
+        for name, param in self.model.named_parameters():
+            if param.requires_grad and name not in self.excluded_layers:
+                self.previous_params[name] = param.data.clone()
+                self.prev_params_per_step[name] = param.data.clone()
     
     def update_trajectory(self, optimizer_step: bool = True):
         """
         Update the parameter trajectories and accumulate path integrals.
+        This should be called after each backward pass but before optimizer.step()
         
         Args:
-            optimizer_step: Whether an optimizer step has been performed since last call
+            optimizer_step: Whether an optimizer step will be performed (should be True in most cases)
         """
         if not optimizer_step:
             return
         
-        # Update path integral and reset reference parameters
+        # Update path integral for each parameter
         for name, param in self.model.named_parameters():
             # Skip excluded layers
             if name in self.excluded_layers:
                 continue
                 
-            if param.requires_grad and name in self.previous_params:
+            if param.requires_grad and param.grad is not None and name in self.prev_params_per_step:
+                # Store the current gradient for this step
+                current_grad = param.grad.detach().clone()
+                
+                # After the optimizer step, update_trajectory_post_step should be called
+                # to accumulate path integrals using the saved gradient and parameter change
+    
+    def update_trajectory_post_step(self):
+        """
+        Update parameter trajectories after optimizer.step() has been called.
+        This should be called after optimizer.step() to complete the importance accumulation.
+        """
+        # Accumulate path integrals using saved gradients and parameter changes
+        for name, param in self.model.named_parameters():
+            # Skip excluded layers
+            if name in self.excluded_layers:
+                continue
+                
+            if param.requires_grad and name in self.prev_params_per_step:
+                # Calculate parameter update (new - old)
+                delta = param.data - self.prev_params_per_step[name]
+                
+                # Check if we have a gradient from the backward pass
                 if param.grad is not None:
-                    # Accumulate path integral: gradient * parameter change
-                    delta = param.data - self.previous_params[name]
-                    self.param_path_integrals[name] += -param.grad * delta
-                    
-                # Update previous parameter values
-                self.previous_params[name] = param.data.clone()
+                    # Accumulate path integral: -gradient * parameter change
+                    # Note the negative sign, as the gradient points in the direction of increasing loss
+                    self.param_path_integrals[name] -= param.grad.detach() * delta
+                
+                # Update previous step parameters to current values
+                self.prev_params_per_step[name] = param.data.clone()
     
     def register_task(self):
         """
         Register the end of a task, calculating importance scores from path integrals.
+        This should be called when transitioning to a new task.
         """
+        if self.current_task_id is None:
+            return
+            
         # Calculate importance scores from accumulated path integrals
         for name, param in self.model.named_parameters():
             # Skip excluded layers
@@ -110,11 +170,11 @@ class SILoss:
                 # Get the path integral
                 path_integral = self.param_path_integrals[name]
                 
-                # Get parameter change from start point
+                # Get parameter change from start of task
                 delta = param.data - self.previous_params[name]
                 
                 # Calculate importance: path_integral / (delta^2 + damping)
-                # Add small constant to avoid division by zero
+                # Add damping factor to avoid division by zero
                 delta_squared = delta.pow(2) + self.damping
                 new_importance = path_integral / delta_squared
                 
@@ -204,11 +264,14 @@ def calculate_path_integral(
         # Backward pass
         loss.backward()
         
+        # Record gradients before optimizer step
+        si_tracker.update_trajectory()
+        
         # Update parameters
         optimizer.step()
         
-        # Update trajectories
-        si_tracker.update_trajectory()
+        # Update path integrals after optimizer step
+        si_tracker.update_trajectory_post_step()
     
     return si_tracker.param_path_integrals
 
@@ -285,11 +348,14 @@ def calculate_path_integral_from_replay_buffer(
                 print("Skipping batch with NaN or Inf gradients")
                 continue
             
+            # Record gradients before optimizer step
+            si_tracker.update_trajectory()
+            
             # Update parameters
             optimizer.step()
             
-            # Update trajectories
-            si_tracker.update_trajectory()
+            # Update path integrals after optimizer step
+            si_tracker.update_trajectory_post_step()
             
             valid_batches += 1
             if valid_batches % 10 == 0:

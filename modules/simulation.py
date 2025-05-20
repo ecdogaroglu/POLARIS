@@ -168,6 +168,12 @@ def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, train
         for agent_id, agent in agents.items():
             if hasattr(agent, 'use_si') and agent.use_si:
                 agent.current_true_state = current_true_state
+                # Set the current task in the SI trackers
+                if hasattr(agent, 'belief_si') and hasattr(agent, 'policy_si'):
+                    agent.belief_si.set_task(current_true_state)
+                    agent.policy_si.set_task(current_true_state)
+                    # Mark that this agent has path integrals calculated so the SI loss will be applied
+                    agent.path_integrals_calculated = True
                 print(f"Set current true state {current_true_state} for agent {agent_id}")
         
     # Set global metrics for access in other functions
@@ -224,13 +230,28 @@ def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, train
                 for agent_id, agent in agents.items():
                     if hasattr(agent, 'use_si') and agent.use_si and hasattr(agent, 'seen_true_states'):
                         if current_true_state not in agent.seen_true_states:
-                            # We have a new true state, calculate Path Integrals
-                            if agent_id in replay_buffers:
-                                print(f"New true state {current_true_state} detected. Calculating Path Integrals for agent {agent_id}...")
-                                agent.calculate_path_integrals(replay_buffers[agent_id])
-                        
+                            # We have a new true state, register the previous task and set the new one
+                            if hasattr(agent, 'belief_si') and hasattr(agent, 'policy_si'):
+                                # Register completed task for both networks
+                                agent.belief_si.register_task()
+                                agent.policy_si.register_task()
+                                
+                                # Set new task
+                                agent.belief_si.set_task(current_true_state)
+                                agent.policy_si.set_task(current_true_state)
+                                
+                                # Store task-specific trackers for visualization
+                                if hasattr(agent, 'state_belief_si_trackers'):
+                                    # Create clones of the trackers for visualization
+                                    agent.state_belief_si_trackers[current_true_state] = agent._clone_si_tracker(agent.belief_si)
+                                    agent.state_policy_si_trackers[current_true_state] = agent._clone_si_tracker(agent.policy_si)
+                                
+                                print(f"Registered completed task and set new true state {current_true_state} for agent {agent_id}")
+                            
                         # Add current true state to the set of seen states
                         agent.seen_true_states.add(current_true_state)
+                        # Update the current true state
+                        agent.current_true_state = current_true_state
 
             break
     
