@@ -29,15 +29,15 @@ def main():
 
         # Train
         args.num_episodes = 2
-        args.horizon = 1000
+        args.horizon = 10000
         args.eval_only = False
         args.save_model = True
         args.use_gnn = True
         args.use_si = True
-        args.si_importance = 18.0
+        args.si_importance = 100
         args.seed = 44
         args.visualize_si = True  # Visualize during training (where SI actually happens)
-        args.si_exclude_final_layers = True
+        args.si_exclude_final_layers = False
         run_experiment(args)
 
         # Evaluate

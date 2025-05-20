@@ -485,7 +485,7 @@ def visualize_layer_importances_across_agents(agents, output_dir, layer_name):
                     mean_importance = np.abs(importance.flatten())
                 
                 # Find top 20 values and their indices
-                top_indices = np.argsort(mean_importance)[-20:]
+                top_indices = np.argsort(mean_importance)[-22:]
                 top_values = mean_importance[top_indices]
                 
                 # Plot top 20 values
@@ -533,6 +533,28 @@ def create_si_visualizations(agents, output_dir):
             return
             
         print(f"Generating SI visualizations for {si_agents} agents...")
+        
+        # Create gradient masking visualizations
+        print("Creating gradient masking visualizations...")
+        for agent_id, agent in agents.items():
+            if hasattr(agent, 'use_si') and agent.use_si:
+                try:
+                    visualize_gradient_masking(agent, output_dir)
+                except Exception as e:
+                    print(f"Error creating gradient masking visualizations for agent {agent_id}: {e}")
+        
+        # Create parameter specialization visualizations
+        print("Creating parameter specialization visualizations...")
+        visualize_parameter_specialization(agents, output_dir)
+        
+        # Create parameter specialization matrix
+        print("Creating parameter specialization matrix...")
+        for agent_id, agent in agents.items():
+            if hasattr(agent, 'use_si') and agent.use_si:
+                try:
+                    visualize_task_parameter_specialization_matrix(agent, output_dir)
+                except Exception as e:
+                    print(f"Error creating specialization matrix for agent {agent_id}: {e}")
         
         # Create task comparison visualizations
         for agent_id, agent in agents.items():
@@ -701,7 +723,7 @@ def visualize_1d_importance_across_tasks(state_importance, layer_name, vis_dir, 
     all_top_params = set()
     
     for state, importance in state_importance.items():
-        top_indices = np.argsort(importance)[-20:]
+        top_indices = np.argsort(importance)[-22:]
         top_params_by_state[state] = top_indices
         all_top_params.update(top_indices)
     
@@ -942,7 +964,7 @@ def visualize_consolidated_importance_across_tasks(agent, output_dir):
             }
         
         # Limit number of parameters to visualize (to avoid memory issues)
-        max_params = 20
+        max_params = 22
         if len(all_params) > max_params:
             print(f"Limiting visualization to {max_params} parameters (out of {len(all_params)})")
             # Sort by parameter size and select a subset
@@ -951,7 +973,7 @@ def visualize_consolidated_importance_across_tasks(agent, output_dir):
             all_params = selected_params
             
         # Create a large figure for the consolidated visualization
-        fig = plt.figure(figsize=(20, 14))
+        fig = plt.figure(figsize=(22, 14))
         fig.suptitle(f"Parameter Importance Comparison Across Tasks for Agent {agent.agent_id}", fontsize=18)
         
         # Determine grid layout
@@ -1068,3 +1090,456 @@ def visualize_consolidated_importance_across_tasks(agent, output_dir):
     finally:
         # Cancel the alarm
         signal.alarm(0) 
+
+def visualize_parameter_specialization(agents, output_dir):
+    """
+    Visualize parameter specialization across tasks.
+    
+    This function creates visualizations showing how different tasks use different parameters
+    by comparing importance scores across tasks.
+    
+    Args:
+        agents: Dictionary of agent_id to POLARISAgent instances
+        output_dir: Directory to save visualizations
+    """
+    # Create visualization directory
+    vis_dir = Path(output_dir) / 'si_visualizations'
+    vis_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Count how many agents use SI
+    si_agents = 0
+    
+    for agent_id, agent in agents.items():
+        if not hasattr(agent, 'use_si') or not agent.use_si:
+            continue
+            
+        si_agents += 1
+        
+        # Check if we have task-specific trackers
+        if not hasattr(agent, 'state_belief_si_trackers') or not agent.state_belief_si_trackers:
+            print(f"Agent {agent_id} has no state-specific SI trackers, skipping specialization visualization")
+            continue
+        
+        if len(agent.state_belief_si_trackers) < 2:
+            print(f"Agent {agent_id} has only seen {len(agent.state_belief_si_trackers)} tasks, not enough for specialization comparison")
+            continue
+            
+        # Get list of tasks
+        tasks = list(agent.state_belief_si_trackers.keys())
+        
+        # Components to visualize
+        components = [
+            ('belief', agent.state_belief_si_trackers),
+            ('policy', agent.state_policy_si_trackers)
+        ]
+        
+        # Track layer-level specialization data
+        layer_specialization = {}
+        
+        # For each component
+        for component_name, trackers in components:
+            # Find common layers across all tasks
+            common_layers = None
+            for task_id, tracker in trackers.items():
+                if common_layers is None:
+                    common_layers = set(tracker.importance_scores.keys())
+                else:
+                    common_layers &= set(tracker.importance_scores.keys())
+            
+            if not common_layers:
+                print(f"No common layers found for {component_name} across tasks")
+                continue
+                
+            # Create a figure for task parameter specialization
+            plt.figure(figsize=(15, 10))
+            
+            # Collect data for visualization
+            layers_to_show = []
+            specialization_scores = []
+            
+            # For each layer, calculate a specialization score
+            for layer_name in sorted(common_layers):
+                # Get importance for this layer across tasks
+                layer_importances = {}
+                
+                for task_id, tracker in trackers.items():
+                    if layer_name in tracker.importance_scores:
+                        # Calculate mean absolute importance
+                        importance = tracker.importance_scores[layer_name]
+                        mean_importance = torch.mean(torch.abs(importance)).item()
+                        layer_importances[task_id] = mean_importance
+                
+                if not layer_importances:
+                    continue
+                    
+                # Calculate specialization: variance of importance across tasks
+                # Higher variance means more specialization
+                importances = list(layer_importances.values())
+                if len(importances) > 1:
+                    # Only include layers with non-zero importance
+                    if sum(importances) > 0:
+                        # Normalize importances
+                        total_importance = sum(importances)
+                        normalized_importances = [imp / total_importance for imp in importances]
+                        
+                        # Calculate variance as a measure of specialization
+                        mean_importance = sum(normalized_importances) / len(normalized_importances)
+                        variance = sum((imp - mean_importance) ** 2 for imp in normalized_importances) / len(normalized_importances)
+                        
+                        # Store data for plotting
+                        layers_to_show.append(layer_name.replace('.', '_'))
+                        specialization_scores.append(variance)
+                        
+                        # Store for layer-level visualization
+                        layer_specialization[layer_name] = {
+                            'component': component_name,
+                            'specialization': variance,
+                            'importances': layer_importances
+                        }
+            
+            # Plot specialization scores
+            if not layers_to_show:
+                print(f"No layers with sufficient variance found for {component_name}")
+                continue
+                
+            # Sort layers by specialization score
+            sorted_indices = np.argsort(specialization_scores)
+            sorted_layers = [layers_to_show[i] for i in sorted_indices]
+            sorted_scores = [specialization_scores[i] for i in sorted_indices]
+            
+            # Plot top 15 layers with highest specialization
+            if len(sorted_layers) > 15:
+                sorted_layers = sorted_layers[-15:]
+                sorted_scores = sorted_scores[-15:]
+                
+            # Create bar plot
+            plt.barh(sorted_layers, sorted_scores)
+            plt.xlabel('Specialization Score (Variance)')
+            plt.ylabel('Layer')
+            plt.title(f'Parameter Specialization - {component_name} - Agent {agent_id}')
+            plt.tight_layout()
+            
+            # Save the figure
+            plt.savefig(vis_dir / f"parameter_specialization_{component_name}_agent{agent_id}.png")
+            plt.close()
+            
+        # Create a more detailed visualization of task-specific parameter usage
+        # for the top specialized layers
+        if layer_specialization:
+            # Sort layers by specialization score
+            top_layers = sorted(layer_specialization.items(), key=lambda x: x[1]['specialization'], reverse=True)
+            
+            # Show top 5 layers
+            top_n = min(5, len(top_layers))
+            
+            fig, axes = plt.subplots(top_n, 1, figsize=(12, 3 * top_n))
+            if top_n == 1:
+                axes = [axes]
+                
+            for i, (layer_name, layer_data) in enumerate(top_layers[:top_n]):
+                ax = axes[i]
+                
+                # Get importances across tasks
+                importances = layer_data['importances']
+                
+                # Normalize importances
+                total_importance = sum(importances.values())
+                if total_importance > 0:
+                    normalized_importances = {t: imp / total_importance for t, imp in importances.items()}
+                else:
+                    normalized_importances = importances
+                
+                # Create bar chart
+                tasks = list(normalized_importances.keys())
+                values = list(normalized_importances.values())
+                
+                # Use different colors for each task
+                colors = plt.cm.tab10.colors[:len(tasks)]
+                
+                ax.bar(range(len(tasks)), values, color=colors)
+                ax.set_xticks(range(len(tasks)))
+                ax.set_xticklabels([f"Task {t}" for t in tasks])
+                ax.set_title(f"{layer_data['component']} - {layer_name}")
+                ax.set_ylabel('Normalized Importance')
+                
+            plt.tight_layout()
+            plt.savefig(vis_dir / f"task_specific_importance_agent{agent_id}.png")
+            plt.close()
+    
+    if si_agents > 0:
+        print(f"Generated parameter specialization visualizations for {si_agents} agents in {vis_dir}")
+    else:
+        print("No agents with SI enabled found.") 
+
+def visualize_gradient_masking(agent, output_dir):
+    """
+    Visualize the effect of gradient masking on parameters.
+    
+    This helps understand how gradient masking promotes parameter specialization
+    by reducing gradient flow to parameters that are important for other tasks.
+    
+    Args:
+        agent: A POLARISAgent instance with SI enabled
+        output_dir: Directory to save visualizations
+    """
+    if not hasattr(agent, 'use_si') or not agent.use_si:
+        print(f"Agent {agent.agent_id} does not use Synaptic Intelligence, skipping visualization")
+        return
+        
+    # Create visualization directory
+    vis_dir = Path(output_dir) / 'si_visualizations'
+    vis_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Get SI trackers from the agent
+    si_trackers = {
+        'belief': agent.belief_si,
+        'policy': agent.policy_si
+    }
+    
+    # For each SI tracker, check if it has stored gradients
+    for tracker_name, si_tracker in si_trackers.items():
+        if not hasattr(si_tracker, 'original_gradients') or not si_tracker.original_gradients:
+            print(f"No gradient masking data available for {tracker_name}")
+            continue
+            
+        if not hasattr(si_tracker, 'masked_gradients') or not si_tracker.masked_gradients:
+            print(f"No masked gradients data available for {tracker_name}")
+            continue
+            
+        # Select a few representative layers
+        # Try to find layers with significant masking
+        layers_to_visualize = []
+        
+        # Calculate masking ratio for each layer
+        masking_ratios = {}
+        
+        for name in si_tracker.original_gradients:
+            if name in si_tracker.masked_gradients:
+                orig_grad = si_tracker.original_gradients[name]
+                masked_grad = si_tracker.masked_gradients[name]
+                
+                # Calculate masking ratio as mean absolute difference / mean absolute original
+                orig_abs_mean = torch.mean(torch.abs(orig_grad)).item()
+                if orig_abs_mean > 0:
+                    diff_abs_mean = torch.mean(torch.abs(orig_grad - masked_grad)).item()
+                    ratio = diff_abs_mean / orig_abs_mean
+                    masking_ratios[name] = ratio
+        
+        # Sort layers by masking ratio
+        if masking_ratios:
+            sorted_layers = sorted(masking_ratios.items(), key=lambda x: x[1], reverse=True)
+            
+            # Select top layers for visualization
+            for name, ratio in sorted_layers[:3]:
+                if ratio > 0.01:  # Only show if there's at least 1% masking
+                    layers_to_visualize.append(name)
+        
+        if not layers_to_visualize:
+            # If no significant masking, just pick some representative layers
+            for name in si_tracker.original_gradients:
+                if 'weight' in name and name in si_tracker.masked_gradients:
+                    # Only include main layers
+                    param = si_tracker.masked_gradients[name]
+                    if param.numel() > 100:  # Only include layers with more than 100 parameters
+                        layers_to_visualize.append(name)
+                        if len(layers_to_visualize) >= 3:
+                            break
+        
+        # For each layer we want to visualize
+        for layer_name in layers_to_visualize:
+            if layer_name in si_tracker.original_gradients and layer_name in si_tracker.masked_gradients:
+                orig_grad = si_tracker.original_gradients[layer_name]
+                masked_grad = si_tracker.masked_gradients[layer_name]
+                
+                # Get number of dimensions
+                ndim = len(orig_grad.shape)
+                
+                if ndim == 2:  # 2D tensor - create a heatmap
+                    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+                    
+                    # Plot original gradient
+                    orig_abs = torch.abs(orig_grad).detach().cpu().numpy()
+                    im0 = axes[0].imshow(orig_abs, cmap='viridis')
+                    axes[0].set_title(f"Original Gradient\n{layer_name}")
+                    plt.colorbar(im0, ax=axes[0])
+                    
+                    # Plot masked gradient
+                    masked_abs = torch.abs(masked_grad).detach().cpu().numpy()
+                    im1 = axes[1].imshow(masked_abs, cmap='viridis')
+                    axes[1].set_title(f"Masked Gradient\n{layer_name}")
+                    plt.colorbar(im1, ax=axes[1])
+                    
+                    # Plot difference
+                    diff = orig_abs - masked_abs
+                    im2 = axes[2].imshow(diff, cmap='viridis')
+                    axes[2].set_title(f"Difference (Removed Gradient)\n{layer_name}")
+                    plt.colorbar(im2, ax=axes[2])
+                    
+                    # Save figure
+                    safe_layer_name = layer_name.replace('.', '_')
+                    fig.tight_layout()
+                    fig.savefig(vis_dir / f"gradient_masking_{tracker_name}_{safe_layer_name}_agent{agent.agent_id}.png")
+                    plt.close(fig)
+                else:
+                    # Create a histogram of the masking effect
+                    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+                    
+                    # Flatten gradients
+                    orig_flat = orig_grad.flatten().detach().cpu().numpy()
+                    masked_flat = masked_grad.flatten().detach().cpu().numpy()
+                    diff_flat = orig_flat - masked_flat
+                    
+                    # Plot histograms
+                    axes[0].hist(orig_flat, bins=50, alpha=0.7)
+                    axes[0].set_title(f"Original Gradient\n{layer_name}")
+                    axes[0].set_xlabel("Gradient Value")
+                    axes[0].set_ylabel("Count")
+                    
+                    axes[1].hist(masked_flat, bins=50, alpha=0.7)
+                    axes[1].set_title(f"Masked Gradient\n{layer_name}")
+                    axes[1].set_xlabel("Gradient Value")
+                    
+                    axes[2].hist(diff_flat, bins=50, alpha=0.7)
+                    axes[2].set_title(f"Difference (Removed Gradient)\n{layer_name}")
+                    axes[2].set_xlabel("Gradient Value")
+                    
+                    # Save figure
+                    safe_layer_name = layer_name.replace('.', '_')
+                    fig.tight_layout()
+                    fig.savefig(vis_dir / f"gradient_masking_hist_{tracker_name}_{safe_layer_name}_agent{agent.agent_id}.png")
+                    plt.close(fig)
+    
+    print(f"Generated gradient masking visualizations for agent {agent.agent_id} in {vis_dir}") 
+
+def visualize_task_parameter_specialization_matrix(agent, output_dir):
+    """
+    Visualize a matrix showing how parameters are specialized across different tasks.
+    
+    Args:
+        agent: A POLARISAgent instance with SI enabled
+        output_dir: Directory to save visualizations
+    """
+    if not hasattr(agent, 'use_si') or not agent.use_si:
+        print(f"Agent {agent.agent_id} does not use Synaptic Intelligence, skipping visualization")
+        return
+        
+    if not hasattr(agent, 'state_belief_si_trackers') or not agent.state_belief_si_trackers:
+        print(f"Agent {agent.agent_id} has no state-specific SI trackers, skipping visualization")
+        return
+        
+    # Create visualization directory
+    vis_dir = Path(output_dir) / 'si_visualizations'
+    vis_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Components to visualize
+    components = [
+        ('belief', agent.state_belief_si_trackers, agent.belief_processor),
+        ('policy', agent.state_policy_si_trackers, agent.policy)
+    ]
+    
+    # Get the true states we've seen
+    true_states = sorted(list(agent.state_belief_si_trackers.keys()))
+    num_states = len(true_states)
+    
+    if num_states < 2:
+        print(f"Agent {agent.agent_id} has only seen {num_states} true states, not enough for comparison")
+        return
+    
+    # For each component (belief/policy)
+    for component_name, trackers, model in components:
+        # Select top layers by parameter count for analysis
+        selected_layers = []
+        layer_params = {}
+        
+        for name, param in model.named_parameters():
+            if param.requires_grad and 'weight' in name and param.numel() > 100:
+                # Only include main weight layers
+                layer_params[name] = param.numel()
+                
+        # Sort by parameter count and take top 10
+        top_layers = sorted(layer_params.items(), key=lambda x: x[1], reverse=True)[:10]
+        selected_layers = [name for name, _ in top_layers]
+        
+        if not selected_layers:
+            continue
+        
+        # Create a specialization matrix: tasks x layers
+        specialization_matrix = np.zeros((num_states, len(selected_layers)))
+        
+        # For each task, calculate relative importance for each layer
+        for i, task_id in enumerate(true_states):
+            if task_id not in trackers:
+                continue
+                
+            task_tracker = trackers[task_id]
+            
+            for j, layer_name in enumerate(selected_layers):
+                if layer_name in task_tracker.importance_scores:
+                    # Calculate mean absolute importance
+                    importance = task_tracker.importance_scores[layer_name]
+                    mean_importance = torch.mean(torch.abs(importance)).item()
+                    specialization_matrix[i, j] = mean_importance
+        
+        # Normalize by column (layer) to show relative importance across tasks
+        col_sums = specialization_matrix.sum(axis=0)
+        col_sums[col_sums == 0] = 1.0  # Avoid division by zero
+        norm_matrix = specialization_matrix / col_sums
+        
+        # Create heatmap
+        plt.figure(figsize=(12, 8))
+        sns.heatmap(
+            norm_matrix,
+            cmap='viridis',
+            annot=True,
+            fmt='.2f',
+            xticklabels=[l.split('.')[-2:][0] for l in selected_layers],
+            yticklabels=[f"Task {t}" for t in true_states]
+        )
+        plt.title(f"Parameter Specialization Matrix - {component_name} - Agent {agent.agent_id}")
+        plt.xlabel("Layer")
+        plt.ylabel("Task")
+        plt.tight_layout()
+        
+        # Save the figure
+        plt.savefig(vis_dir / f"task_parameter_specialization_matrix_{component_name}_agent{agent.agent_id}.png")
+        plt.close()
+        
+        # Also create a difference matrix
+        if num_states >= 2:
+            # Calculate pairwise differences between tasks
+            diff_matrix = np.zeros((num_states, num_states, len(selected_layers)))
+            
+            for i in range(num_states):
+                for j in range(num_states):
+                    if i != j:
+                        diff_matrix[i, j] = norm_matrix[i] - norm_matrix[j]
+            
+            # Calculate task dissimilarity (how different each task's parameter usage is)
+            dissimilarity = np.zeros((num_states, num_states))
+            
+            for i in range(num_states):
+                for j in range(num_states):
+                    if i != j:
+                        # Use sum of absolute differences
+                        dissimilarity[i, j] = np.sum(np.abs(diff_matrix[i, j]))
+            
+            # Create heatmap of task dissimilarity
+            plt.figure(figsize=(10, 8))
+            sns.heatmap(
+                dissimilarity,
+                cmap='coolwarm',
+                annot=True,
+                fmt='.2f',
+                xticklabels=[f"Task {t}" for t in true_states],
+                yticklabels=[f"Task {t}" for t in true_states]
+            )
+            plt.title(f"Task Parameter Usage Dissimilarity - {component_name} - Agent {agent.agent_id}")
+            plt.xlabel("Task")
+            plt.ylabel("Task")
+            plt.tight_layout()
+            
+            # Save the figure
+            plt.savefig(vis_dir / f"task_dissimilarity_matrix_{component_name}_agent{agent.agent_id}.png")
+            plt.close()
+    
+    print(f"Generated parameter specialization matrix for agent {agent.agent_id}") 
