@@ -53,6 +53,8 @@ def parse_args():
                         help='Importance factor for SI penalty (lambda)')
     parser.add_argument('--si-damping', type=float, default=0.1,
                         help='Damping factor to prevent division by zero in SI calculation')
+    parser.add_argument('--si-exclude-final-layers', action='store_true',
+                        help='Exclude final layers from SI protection to allow better adaptation to new tasks')
     
     # Experiment settings
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
@@ -85,6 +87,8 @@ def parse_args():
                         help='Use LaTeX-style formatting for plots (publication quality)')
     parser.add_argument('--use-tex', action='store_true',
                         help='Use actual LaTeX rendering for text in plots (requires LaTeX installation)')
+    parser.add_argument('--visualize-si', action='store_true',
+                        help='Generate visualizations of Synaptic Intelligence importance scores')
     
     args = parser.parse_args()
     

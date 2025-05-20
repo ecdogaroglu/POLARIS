@@ -248,25 +248,23 @@ class DecoderNetwork(nn.Module):
         nn.init.xavier_normal_(self.fc3.weight)
     
     def forward(self, signal, latent):
-        signal = signal.to(self.device)
-        latent = latent.to(self.device) 
+        """Compute action logits given signal and latent."""
+        # Handle different input dimensions
+        batch_size = signal.size(0)
         
-        """Predict peer actions from observation and latent."""
-        # Handle different dimensions
+        # Handle 3D latent tensors by squeezing the middle dimension
         if latent.dim() == 3:  # [batch_size, 1, latent_dim]
-            latent = latent.squeeze(0)
+            latent = latent.squeeze(1)
         
-        # Create a new input tensor with the correct dimensions
-        batch_size = signal.size(0) if signal.dim() > 1 else 1
-        
-        # Ensure latent has the right shape
-        if latent.dim() == 1:
+        # Ensure both signal and latent have the same batch dimension
+        if latent.dim() == 1:  # Single latent without batch dimension
             latent = latent.unsqueeze(0)
-
-        if signal.dim() == 1:
-            signal = signal.unsqueeze(0)
-        
-        # Combine inputs
+            
+        if latent.size(0) != batch_size:
+            # Expand latent to match batch size if needed
+            latent = latent.expand(batch_size, -1)
+            
+        # Concatenate signal and latent along feature dimension
         combined = torch.cat([signal, latent], dim=1)
         
         # Forward pass
@@ -356,9 +354,22 @@ class QNetwork(nn.Module):
         """Compute Q-values given belief, latent, and neighbor actions."""
         # Handle different dimensions
         if belief.dim() == 3:  # [batch_size, 1, belief_dim]
-            belief = belief.squeeze(0)
+            belief = belief.squeeze(1)
         if latent.dim() == 3:  # [batch_size, 1, latent_dim]
-            latent = latent.squeeze(0)
+            latent = latent.squeeze(1)
+            
+        # Ensure tensors have same number of dimensions
+        if belief.dim() != latent.dim():
+            if belief.dim() > latent.dim():
+                latent = latent.unsqueeze(1)
+            else:
+                belief = belief.unsqueeze(1)
+                
+        # Ensure both dimensions are 2D (batch_size, feature_dim)
+        if belief.dim() == 3:
+            belief = belief.squeeze(1)
+        if latent.dim() == 3:
+            latent = latent.squeeze(1)
 
         # Combine inputs
         combined = torch.cat([belief, latent, neighbor_actions], dim=1)

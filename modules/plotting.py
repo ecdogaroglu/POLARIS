@@ -70,7 +70,7 @@ def generate_plots(metrics, env, args, output_dir, training, episodic_metrics=No
                 log_scale=False,
                 episode_length=args.horizon
             )
-        
+        """""
         # Plot agent actions if available
         if 'agent_actions' in metrics and any(len(actions) > 0 for actions in metrics['agent_actions'].values()):
             # Add note about episode limit if there are more than 10 episodes
@@ -83,7 +83,7 @@ def generate_plots(metrics, env, args, output_dir, training, episodic_metrics=No
                 save_path=str(output_dir / 'agent_actions.png'),
                 episode_length=args.horizon,
                 num_episodes=num_episodes_for_plot
-            )
+            )"""
     
     # Plot internal states if requested (for both training and evaluation)
     if args.plot_internal_states:

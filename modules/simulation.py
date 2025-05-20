@@ -59,6 +59,11 @@ def run_agents(env, args, training=True, model_path=None):
     agents = initialize_agents(env, args, obs_dim)
     load_agent_models(agents, model_path, env.num_agents, training=training)
     metrics = initialize_metrics(env, args, training)
+    
+    # Store agents for potential SI visualization
+    if hasattr(args, 'visualize_si') and args.visualize_si and training:
+        from modules.si_visualizer import create_si_visualizations
+        create_si_visualizations(agents, output_dir)
 
     # Calculate and display theoretical bounds
     theoretical_bounds = calculate_theoretical_bounds(env)
@@ -103,6 +108,12 @@ def run_agents(env, args, training=True, model_path=None):
     # Process results
     learning_rates = calculate_agent_learning_rates_from_metrics(combined_metrics)
     display_learning_rate_summary(learning_rates, theoretical_bounds['bound_rate'])
+    
+    # Create SI visualizations after training is complete
+    if hasattr(args, 'visualize_si') and args.visualize_si and training:
+        from modules.si_visualizer import create_si_visualizations
+        print("\n===== FINAL SI STATE (AFTER TRAINING) =====")
+        create_si_visualizations(agents, output_dir)
     
     # Save metrics and models
     serializable_metrics = prepare_serializable_metrics(
@@ -150,6 +161,14 @@ def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, train
     
     # Print the true state
     print(f"True state for this episode: {env.true_state}")
+    
+    # If training and using SI, set the current true state for all agents
+    if training and hasattr(args, 'use_si') and args.use_si:
+        current_true_state = env.true_state
+        for agent_id, agent in agents.items():
+            if hasattr(agent, 'use_si') and agent.use_si:
+                agent.current_true_state = current_true_state
+                print(f"Set current true state {current_true_state} for agent {agent_id}")
         
     # Set global metrics for access in other functions
     set_metrics(metrics)
@@ -205,10 +224,10 @@ def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, train
                 for agent_id, agent in agents.items():
                     if hasattr(agent, 'use_si') and agent.use_si and hasattr(agent, 'seen_true_states'):
                         if current_true_state not in agent.seen_true_states:
-                            # We have a new true state, calculate Path Integrals
-                            if agent_id in replay_buffers:
-                                print(f"New true state {current_true_state} detected. Calculating Path Integrals for agent {agent_id}...")
-                                agent.calculate_path_integrals(replay_buffers[agent_id])
+                            # We have a new true state, register the accumulated path integrals
+                            print(f"New true state {current_true_state} detected. Registering path integrals for agent {agent_id}...")
+                            # We don't need the replay buffer anymore, the path integrals are accumulated during training
+                            agent.calculate_path_integrals(None)
                         
                         # Add current true state to the set of seen states
                         agent.seen_true_states.add(current_true_state)
@@ -307,10 +326,15 @@ def update_agent_states(agents, observations, next_observations, actions, reward
             
             # Update networks if enough samples
             if len(replay_buffers[agent_id]) > args.batch_size and step % args.update_interval == 0:
+                print(f"Step {step}: Sampling batch for agent {agent_id} (buffer size: {len(replay_buffers[agent_id])})")
                 # Sample a batch from the replay buffer
                 batch = replay_buffers[agent_id].sample(args.batch_size)
-                # Update network parameters
-                agent.update(batch)
+                if batch is not None:
+                    print(f"Step {step}: Updating agent {agent_id} with batch")
+                    # Update network parameters
+                    agent.update(batch)
+                else:
+                    print(f"Step {step}: Failed to sample batch for agent {agent_id}")
 
 def initialize_agents(env, args, obs_dim):
     """Initialize POLARIS agents."""
@@ -321,6 +345,10 @@ def initialize_agents(env, args, obs_dim):
         print(f"Using Graph Neural Network with {args.gnn_layers} layers, {args.attn_heads} attention heads, and temporal window of {args.temporal_window}")
     else:
         print("Using traditional encoder-decoder inference module")
+    
+    # Log if excluding final layers from SI
+    if hasattr(args, 'si_exclude_final_layers') and args.si_exclude_final_layers and hasattr(args, 'use_si') and args.use_si:
+        print("Excluding final layers from Synaptic Intelligence protection")
         
     agents = {}
     
@@ -344,7 +372,8 @@ def initialize_agents(env, args, obs_dim):
             use_gnn=args.use_gnn,
             use_si=args.use_si if hasattr(args, 'use_si') else False,
             si_importance=args.si_importance if hasattr(args, 'si_importance') else 100.0,
-            si_damping=args.si_damping if hasattr(args, 'si_damping') else 0.1
+            si_damping=args.si_damping if hasattr(args, 'si_damping') else 0.1,
+            si_exclude_final_layers=args.si_exclude_final_layers if hasattr(args, 'si_exclude_final_layers') else False
         )
         
         # If using GNN, update the inference module with the specified parameters

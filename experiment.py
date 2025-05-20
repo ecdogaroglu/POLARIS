@@ -28,21 +28,25 @@ def main():
     if args.train_then_evaluate:
 
         # Train
-        args.num_episodes = 6
+        args.num_episodes = 2
         args.horizon = 1000
         args.eval_only = False
         args.save_model = True
         args.use_gnn = True
         args.use_si = True
-        args.si_importance = 100.0
+        args.si_importance = 18.0
+        args.seed = 44
+        args.visualize_si = True  # Visualize during training (where SI actually happens)
+        args.si_exclude_final_layers = True
         run_experiment(args)
 
         # Evaluate
         args.num_episodes = 10
-        args.use_si = False
+        args.use_si = True  # Keep SI enabled for consistency 
         args.horizon = 100
         args.eval_only = True
         args.load_model = 'auto'
+        args.visualize_si = False  # No need to visualize during evaluation
         run_experiment(args)
 
     else:
