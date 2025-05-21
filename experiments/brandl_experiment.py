@@ -37,6 +37,7 @@ def main():
     print("\n=== Training phase ===\n")
     train_args = argparse.Namespace(**vars(args))
     train_args.num_episodes = 1
+    train_args.num_agents = 8
     train_args.horizon = 1000
     train_args.eval_only = False
     train_args.save_model = True

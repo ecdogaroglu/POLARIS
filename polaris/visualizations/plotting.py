@@ -781,95 +781,6 @@ def plot_agent_actions(actions, true_states, title, save_path=None, episode_leng
         plt.show()
         plt.close()
 
-def plot_agent_allocations(allocations, true_states=None, title="Agent Resource Allocations", 
-                           save_path=None, episode_length=None, num_agents=None):
-    """
-    Plot agent allocations to the risky arm over time.
-    
-    Args:
-        allocations: Dictionary mapping agent IDs to their allocation histories
-        true_states: Optional list of true environment states for background coloring
-        title: Plot title
-        save_path: Path to save the figure
-        episode_length: Length of the episode (for x-axis scaling)
-        num_agents: Number of agents (used if allocations is a 2D array)
-    """
-    plt.figure(figsize=(10, 6))
-    ax = plt.gca()
-    
-    # Determine the number of agents and allocations format
-    if isinstance(allocations, dict):
-        # If allocations is a dictionary, use the keys as agent IDs
-        agent_ids = sorted(allocations.keys())
-    elif isinstance(allocations, list) or isinstance(allocations, np.ndarray):
-        # If allocations is a list/array of arrays, create agent IDs
-        if num_agents is None:
-            if len(allocations) > 0 and hasattr(allocations[0], '__len__'):
-                num_agents = len(allocations[0])
-            else:
-                num_agents = 1
-        agent_ids = list(range(num_agents))
-        
-        # Reshape allocations into a dictionary
-        allocation_dict = {}
-        for t, alloc_t in enumerate(allocations):
-            for agent_id in range(num_agents):
-                if agent_id not in allocation_dict:
-                    allocation_dict[agent_id] = []
-                if hasattr(alloc_t, '__len__'):
-                    allocation_dict[agent_id].append(alloc_t[agent_id])
-                else:
-                    # If only one agent
-                    allocation_dict[agent_id].append(alloc_t)
-        allocations = allocation_dict
-    
-    # Plot each agent's allocation
-    for agent_id in agent_ids:
-        if agent_id not in allocations:
-            continue
-            
-        agent_allocs = allocations[agent_id]
-        time_steps = list(range(len(agent_allocs)))
-        
-        # Use different colors for different agents
-        agent_color = plt.cm.tab10(agent_id % 10)
-        
-        # Plot allocation trajectory
-        line, = ax.plot(time_steps, agent_allocs, 
-                      label=f"Agent {agent_id}",
-                      color=agent_color,
-                      linewidth=1.5)
-    
-    # Add horizontal lines for important thresholds
-    ax.axhline(y=0.0, color='gray', linestyle='--', alpha=0.5)
-    ax.axhline(y=0.5, color='gray', linestyle='--', alpha=0.5)
-    ax.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
-    
-    # Set axis labels and title
-    ax.set_xlabel("Time Steps")
-    ax.set_ylabel("Allocation to Risky Arm")
-    ax.set_title(title)
-    
-    # Set y-axis limits (allocations are between 0 and 1)
-    ax.set_ylim(-0.05, 1.05)
-    
-    # Add legend
-    ax.legend()
-    
-    # Add grid for better readability
-    ax.grid(True, alpha=0.3)
-    
-    # Apply LaTeX style if available
-    format_axis_in_latex_style(ax)
-    
-    # Save figure if path is provided
-    if save_path:
-        plt.tight_layout()
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved allocation plot to: {save_path}")
-    
-    # Show the plot
-    plt.close()
 
 def plot_allocations(metrics, output_dir, use_latex=False):
     """Plot agent allocations over time for the Strategic Experimentation environment.
@@ -883,7 +794,7 @@ def plot_allocations(metrics, output_dir, use_latex=False):
         print("No allocation data available for plotting")
         return
         
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(5, 3))
     
     if use_latex:
         set_latex_style()
@@ -945,8 +856,8 @@ def plot_kl_divergence(metrics, output_dir, use_latex=False):
         return
     
     # Create figure with LaTeX-style dimensions if requested
-    fig_width = 10
-    fig_height = 6
+    fig_width = 5
+    fig_height = 3
     
     plt.figure(figsize=(fig_width, fig_height))
     ax = plt.gca()
@@ -1051,8 +962,8 @@ def plot_belief_states(metrics, agent_id, output_dir, use_latex=False):
     timesteps = range(len(belief_arrays))
     
     # Create figure with LaTeX-style dimensions if requested
-    fig_width = 10
-    fig_height = 6
+    fig_width = 5
+    fig_height = 3
     
     plt.figure(figsize=(fig_width, fig_height))
     ax = plt.gca()
@@ -1135,8 +1046,8 @@ def plot_latent_states(metrics, agent_id, output_dir, use_latex=False):
     timesteps = range(len(latent_arrays))
     
     # Create figure with LaTeX-style dimensions if requested
-    fig_width = 10
-    fig_height = 6
+    fig_width = 5
+    fig_height = 3
     
     plt.figure(figsize=(fig_width, fig_height))
     ax = plt.gca()

@@ -40,7 +40,7 @@ def set_latex_style(use_tex=False):
         plt.rcParams["font.serif"] = ["DejaVu Serif", "Times New Roman", "Times", "serif"]
     
     # Figure size and DPI
-    plt.rcParams["figure.figsize"] = (6, 4.5)  # Default figure size (4:3 aspect ratio)
+    plt.rcParams["figure.figsize"] = (4, 3)  # Default figure size (4:3 aspect ratio)
     plt.rcParams["figure.dpi"] = 300  # High resolution for publication
     plt.rcParams["savefig.dpi"] = 300  # High resolution for saved figures
     plt.rcParams["savefig.format"] = "pdf"  # PDF is preferred for publications

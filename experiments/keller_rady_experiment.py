@@ -37,20 +37,21 @@ def main():
     print("\n=== Training phase ===\n")
     train_args = argparse.Namespace(**vars(args))
     train_args.safe_payoff = 0.5
-    train_args.drift_rates_list = [0, 1]
-    train_args.jump_rates_list = [0, 0.5]
+    # first values for the bad state, second values for the good state
+    train_args.drift_rates_list = [0, 1] 
+    train_args.jump_rates_list = [0, 0.1]
     train_args.jump_sizes_list = [1.0, 1.0]
-    train_args.num_agents = 10
+    train_args.num_agents = 2
     train_args.num_episodes = 1
-    train_args.horizon = 100
+    train_args.horizon = 10
     train_args.eval_only = False
     train_args.save_model = True
-    # Force GNN usage (no traditional encoder option)
     train_args.use_gnn = True
     train_args.use_si = False
     train_args.si_importance = 100
     train_args.visualize_si = False
     train_args.si_exclude_final_layers = False
+    train_args.latex_style = True
     # Use average reward for strategic experimentation
     train_args.discount_factor = 0.0
     # Enable continuous action space for resource allocation

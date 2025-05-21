@@ -141,7 +141,7 @@ def run_agents(env, args, training=True, model_path=None):
         use_latex=args.use_tex if hasattr(args, 'use_tex') else False
     )
     
-    return learning_rates, serializable_metrics
+    return episodic_metrics, serializable_metrics
 
 def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, training):
     """Run the main simulation loop."""
@@ -364,13 +364,6 @@ def update_agent_states(agents, observations, next_observations, actions, reward
                 # Convert to binary actions
                 neighbor_actions = {} if neighbor_allocations is None else {k: int(v > 0.5) for k, v in neighbor_allocations.items()}
                 next_neighbor_actions = {} if next_neighbor_allocations is None else {k: int(v > 0.5) for k, v in next_neighbor_allocations.items()}
-        else:
-            # Fallback for unknown environment type
-            signal = 0
-            next_signal = 0
-            neighbor_actions = {}
-            next_neighbor_actions = {}
-            print(f"Warning: Unknown observation format in {type(env).__name__}")
 
         # Encode observations
         signal_encoded, actions_encoded = encode_observation(

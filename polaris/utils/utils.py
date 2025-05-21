@@ -332,7 +332,7 @@ def calculate_theoretical_bounds(env):
         }
     else:
         # Default empty bounds for unknown environment types
-        print("Warning: Unknown environment type, cannot calculate theoretical bounds.")
+        print("Warning: Unknown environment type, cannot calculate theoretical learning rates.")
         return {}
 
 

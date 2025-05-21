@@ -124,7 +124,6 @@ def update_metrics(metrics, info, actions, action_probs=None, beliefs=None, late
             for agent_id in range(len(allocations)):
                 if agent_id in metrics['allocations']:
                     metrics['allocations'][agent_id].append(allocations[agent_id])
-                    print(f"Agent {agent_id} allocation: {allocations[agent_id]}")
         else:
             print(f"Warning: Unsupported allocations format: {type(allocations)}")
     
@@ -231,7 +230,7 @@ def calculate_dynamic_mpe(true_state, belief, safe_payoff, drift_rates, jump_rat
     
     
     # Full information payoff (value when state is known to be good)
-    full_info_payoff = belief * max(safe_payoff, drift_rates[1] + jump_rates[1] * jump_sizes[1]) + (1 - belief) * safe_payoff
+    full_info_payoff = belief * max(safe_payoff, drift_rates[1] + jump_rates[1] * jump_sizes[1]) + (1 - belief) * max(safe_payoff, drift_rates[0] + jump_rates[0] * jump_sizes[0])
     
 
     # Incentive defined in the Keller and Rady paper
@@ -248,7 +247,6 @@ def calculate_dynamic_mpe(true_state, belief, safe_payoff, drift_rates, jump_rat
         return (incentive - k0) / (n - 1)
     else:
         return 1.0  # Full experimentation
-
 
 
 def store_incorrect_probabilities(metrics, info, num_agents):
@@ -282,6 +280,7 @@ def calculate_agent_learning_rates_from_metrics(metrics):
         else:
             learning_rates[agent_id] = 0.0
     return learning_rates
+
 
 def prepare_serializable_metrics(metrics, learning_rates, theoretical_bounds, num_steps, training):
     """Prepare metrics for JSON serialization."""
@@ -457,15 +456,3 @@ def process_incorrect_probabilities(metrics, num_agents):
                     agent_incorrect_probs[agent_id].append(step_probs)
     
     return agent_incorrect_probs
-
-
-def print_debug_info_for_plotting(agent_incorrect_probs):
-    """Print debug information about the data to be plotted."""
-    print(f"Number of agents with data: {len(agent_incorrect_probs)}")
-    for agent_id, probs in agent_incorrect_probs.items():
-        print(f"Agent {agent_id}: {len(probs)} data points")
-        if len(probs) > 0:
-            print(f"  First few values: {np.array2string(np.array(probs[:5]), precision=2)}")
-            print(f"  Last few values: {np.array2string(np.array(probs[-5:]), precision=2)}")
-        else:
-            print(f"  No data points for agent {agent_id}")
