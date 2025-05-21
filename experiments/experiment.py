@@ -11,9 +11,10 @@ import torch
 import numpy as np
 from pathlib import Path
 
-from modules.environment import SocialLearningEnvironment, StrategicExperimentationEnvironment
-from modules.args import parse_args
-from modules.simulation import run_agents
+from polaris.environments.social import SocialLearningEnvironment
+from polaris.environments.strategic import StrategicExperimentationEnvironment
+from polaris.utils.args import parse_args
+from polaris.simulation import run_agents
 
 
 def main():
