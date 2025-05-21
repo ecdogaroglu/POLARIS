@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 import torch
 import os
 from scipy import stats
+from pathlib import Path
 
 from modules.metrics import process_incorrect_probabilities, print_debug_info_for_plotting
 from modules.utils import calculate_learning_rate
@@ -24,83 +25,68 @@ def generate_plots(metrics, env, args, output_dir, training, episodic_metrics=No
         args: Command-line arguments
         output_dir: Directory to save plots
         training: Whether this is training or evaluation
-        episodic_metrics: Optional dictionary with episode-separated metrics
-        use_latex: Whether to use LaTeX rendering for text (requires LaTeX installation)
-    
-    Note:
-        For readability, plots are limited to showing the first 10 episodes even if more are available.
+        episodic_metrics: Optional dictionary of metrics for each episode
+        use_latex: Whether to use LaTeX styling for plots
     """
-    # Apply LaTeX-style formatting to all plots
-    set_latex_style(use_tex=use_latex)
+    # Check if metrics are available
+    if not metrics:
+        print("No metrics available for plotting")
+        return
     
-    # Process incorrect probabilities for plotting
-    agent_incorrect_probs = process_incorrect_probabilities(metrics, env.num_agents)
-    
-    # Debug information about processed data
-    print_debug_info_for_plotting(agent_incorrect_probs)
-    
-    # Check if we have data to plot
-    has_data = any(len(probs) > 0 for probs in agent_incorrect_probs.values())
-    
-    if not has_data:
-        print("WARNING: No data to plot! Skipping plot generation.")
-        create_empty_plot(output_dir)
-    else:
-        # Plot incorrect action probabilities with episode separation
-        # Add note about episode limit if there are more than 10 episodes
-        episode_note = " (First 10 Episodes)" if args.num_episodes > 10 else ""
-        plot_incorrect_action_probabilities(
-            incorrect_probs=agent_incorrect_probs,
-            title=f"Incorrect Action Probabilities ({args.network_type.capitalize()} Network, {env.num_agents} Agents){episode_note}",
-            save_path=str(output_dir / 'incorrect_action_probs.png'),
-            log_scale=False,
-            show_learning_rates=True,
-            episode_length=args.horizon  # Use horizon directly
-        )
+    # Check if the output directory exists
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
         
-        # Plot mean incorrect action probabilities with confidence intervals if we have multiple episodes
-        if episodic_metrics and 'episodes' in episodic_metrics and len(episodic_metrics['episodes']) > 1:
-            # Include the number of episodes in a shorter title
-            num_episodes = len(episodic_metrics['episodes'])
-            plot_mean_incorrect_action_probabilities_with_ci(
-                episodic_metrics=episodic_metrics,
-                title=f"Mean Incorrect Action Probabilities ({num_episodes} Episodes)",
-                subtitle=f"{args.network_type.capitalize()} Network, {env.num_agents} Agents",
-                save_path=str(output_dir / 'mean_incorrect_action_probs_with_ci.png'),
-                log_scale=False,
-                episode_length=args.horizon
-            )
-        """""
-        # Plot agent actions if available
-        if 'agent_actions' in metrics and any(len(actions) > 0 for actions in metrics['agent_actions'].values()):
-            # Add note about episode limit if there are more than 10 episodes
-            num_episodes_for_plot = args.num_episodes if training else 1
-            episode_note = " (First 10 Episodes)" if num_episodes_for_plot > 10 else ""
-            plot_agent_actions(
-                actions=metrics['agent_actions'],
-                true_states=metrics['true_states'],
-                title=f"Agent Actions Over Time ({args.network_type.capitalize()} Network, {env.num_agents} Agents){episode_note}",
-                save_path=str(output_dir / 'agent_actions.png'),
-                episode_length=args.horizon,
-                num_episodes=num_episodes_for_plot
-            )"""
+    # Add environment information to metrics for plotting
+    metrics['num_states'] = env.num_states
+    metrics['num_agents'] = env.num_agents
+    metrics['environment_type'] = env.__class__.__name__
     
-    # Plot internal states if requested (for both training and evaluation)
-    if args.plot_internal_states:
-        # Check if we have the necessary data
-        has_belief_data = ('belief_states' in metrics and 
-                          any(len(beliefs) > 0 for beliefs in metrics['belief_states'].values()))
-        has_latent_data = ('latent_states' in metrics and 
-                          any(len(latents) > 0 for latents in metrics['latent_states'].values()))
-        
-        if has_belief_data or has_latent_data:
-            print(f"Generating internal state plots in {'training' if training else 'evaluation'} mode...")
+    # Plot belief states for each agent if requested
+    if hasattr(args, 'plot_internal_states') and args.plot_internal_states:
+        for agent_id in range(env.num_agents):
+            plot_belief_states(metrics, agent_id, output_dir, use_latex)
+            plot_latent_states(metrics, agent_id, output_dir, use_latex)
             
-
-            generate_internal_state_plots(metrics, env, args, output_dir)
-        else:
-            print("No internal state data available for plotting. Make sure you're running in evaluation mode or collecting internal states during training.")
-
+    # For Strategic Experimentation environment, plot agent allocations
+    if hasattr(args, 'plot_allocations') and args.plot_allocations and hasattr(env, 'safe_payoff'):
+        print("Plotting agent allocations...")
+        plot_allocations(metrics, output_dir, use_latex)
+        
+        # Also plot KL divergence if available
+        if 'policy_kl_divergence' in metrics:
+            print("Plotting KL divergence towards MPE...")
+            plot_kl_divergence(metrics, output_dir, use_latex)
+    
+    # If we have episodic metrics, plot with error bars
+    if episodic_metrics and 'episodes' in episodic_metrics and len(episodic_metrics['episodes']) > 1:
+        episode_length = args.horizon
+        num_episodes = len(episodic_metrics['episodes'])
+        
+        # Create mean incorrect action probability plots with confidence intervals
+        incorrect_probs_by_episode = []
+        for ep in episodic_metrics['episodes']:
+            incorrect_probs_by_episode.append(ep['incorrect_probs'])
+            
+        # Plot mean incorrect probabilities with confidence intervals
+        plot_mean_incorrect_action_probabilities_with_ci(
+            incorrect_probs_by_episode,
+            title=f"Mean Incorrect Action Probabilities with 95% CI ({num_episodes} episodes)",
+            save_path=output_dir / "mean_incorrect_probs_with_ci.png",
+            log_scale=True,
+            episode_length=episode_length
+        )
+    else:
+        # Just plot the standard curves without CIs
+        incorrect_probs = process_incorrect_probabilities(metrics, env.num_agents)
+        
+        plot_incorrect_action_probabilities(
+            incorrect_probs,
+            title="Incorrect Action Probabilities Over Time",
+            save_path=output_dir / "incorrect_probs.png",
+            log_scale=True,
+            episode_length=args.horizon
+        )
 
 def create_empty_plot(output_dir):
     """Create an empty plot with a message when no data is available."""
@@ -380,6 +366,12 @@ def plot_incorrect_action_probabilities(
         episode_length: Length of each episode (if None, treats all data as a single episode)
     """
     # Determine total steps and number of episodes
+    if not incorrect_probs:
+        print("No incorrect action probability data available for plotting")
+        if save_path:
+            create_empty_plot(Path(save_path).parent)
+        return
+        
     total_steps = max(len(probs) for probs in incorrect_probs.values())
     
     if episode_length is None:
@@ -395,9 +387,15 @@ def plot_incorrect_action_probabilities(
         # Limit total steps to only include the episodes we're plotting
         total_steps = min(total_steps, num_episodes * episode_length)
     
+    # Ensure we have at least one episode
+    num_episodes = max(1, num_episodes)
+    
     # Create a figure with subplots for each episode (2 per row)
     num_rows = (num_episodes + 1) // 2  # Ceiling division to get number of rows
     num_cols = min(2, num_episodes)  # At most 2 columns
+    
+    # Ensure we have at least one column
+    num_cols = max(1, num_cols)
     
     # Use LaTeX-style figure dimensions (golden ratio)
     if num_cols == 1:
@@ -544,145 +542,141 @@ def plot_incorrect_action_probabilities(
     
 
 def plot_belief_distributions(
-    belief_distributions: Dict[int, List[torch.Tensor]],
-    true_states: List[int] = None,
-    title: str = "Agent Belief Distributions Over Time",
-    save_path: Optional[str] = None,
-    max_steps: Optional[int] = None,
-    episode_length: Optional[int] = None,
-    num_episodes: Optional[int] = 1
+    metrics,
+    agent_id,
+    num_states,
+    output_dir,
+    use_latex=False
 ) -> None:
     """
-    Simplified version of the plot_belief_distributions function.
+    Plot belief distributions over time for a specific agent.
+    
+    Args:
+        metrics: Dictionary of metrics
+        agent_id: Agent ID to plot for
+        num_states: Number of possible states (for dimensionality)
+        output_dir: Directory to save plots
+        use_latex: Whether to use LaTeX styling
     """
-    num_agents = len(belief_distributions)
+    if 'belief_distributions' not in metrics or agent_id not in metrics['belief_distributions']:
+        print(f"No belief distribution data available for agent {agent_id}")
+        return
     
-    # Determine total steps
-    total_steps = episode_length
+    # Get belief distributions for this agent
+    belief_distributions = metrics['belief_distributions'][agent_id]
     
-    # Create a figure with subplots arranged in a grid
-    fig, all_axes = plt.subplots(
-        num_agents,  # One row per agent
-        num_episodes,  # One column per episode
-        figsize=(8 * num_episodes, 5 * num_agents),
-        sharex='col',  # Share x-axis within columns
-        sharey='row'   # Share y-axis within rows
-    )
+    if not belief_distributions:
+        print(f"Empty belief distribution history for agent {agent_id}")
+        return
     
-    # Make sure all_axes is a 2D array
-    if num_agents == 1 and num_episodes == 1:
-        all_axes = np.array([[all_axes]])
-    elif num_agents == 1:
-        all_axes = np.array([all_axes])
-    elif num_episodes == 1:
-        all_axes = np.array([[ax] for ax in all_axes])
+    # Get true states if available
+    true_states = metrics.get('true_states', None)
     
-    # Plot each agent and episode
-    for j, agent_id in enumerate(sorted(belief_distributions.keys())):
-        for ep in range(num_episodes):
-            # Each agent is a row, each episode is a column
-            grid_row = j
-            grid_col = ep
-            
-            # Skip if we're out of bounds
-            if grid_row >= num_agents or grid_col >= num_episodes:
-                continue
-                
-            ax = all_axes[grid_row, grid_col]
-            
-            # Calculate start and end indices for this episode
-            start_idx = ep * episode_length
-            end_idx = min(start_idx + episode_length, len(belief_distributions[agent_id]))
-            
-            # Set the title for this subplot
-            ax.set_title(f"Agent {agent_id} - Episode {ep+1}")
-            
-            # Skip if we're out of data for this agent
-            if start_idx >= len(belief_distributions[agent_id]) or start_idx == end_idx:
-                continue
-            
-            # Get belief distributions for this agent and episode
-            agent_beliefs = belief_distributions[agent_id][start_idx:end_idx]
-            
-            # Create time steps array (relative to episode start)
-            time_steps = np.arange(len(agent_beliefs))
-            
-            # Skip if no data
-            if len(agent_beliefs) == 0:
-                continue
-            
-            # Get the number of belief states
-            num_belief_states = agent_beliefs[0].shape[-1]
-            
-            # Create a line plot for each belief state
-            belief_values = np.zeros((len(agent_beliefs), num_belief_states))
-            for t, belief in enumerate(agent_beliefs):
-                # Convert to numpy
-                if isinstance(belief, torch.Tensor):
-                    belief_np = belief.detach().cpu().numpy()
-                    if belief_np.ndim > 1:
-                        belief_np = belief_np.flatten()
-                else:
-                    belief_np = np.array(belief)
-                    if belief_np.ndim > 1:
-                        belief_np = belief_np.flatten()
-                
-                belief_values[t] = belief_np
-            
-            # Plot lines for each belief state
-            colors = plt.cm.viridis(np.linspace(0, 1, num_belief_states))
-            for state in range(num_belief_states):
-                ax.plot(
-                    time_steps, 
-                    belief_values[:, state], 
-                    label=f'State {state}',
-                    color=colors[state],
-                    linewidth=2
-                )
-            
-            # Add legend
-            if ep == 0 and j == 0:  # Only add legend to first subplot to avoid clutter
-                ax.legend(loc='upper right', fontsize='small')
-            
-            # Set y-axis limits
-            ax.set_ylim(0, 1.05)  # Probabilities range from 0 to 1
-            
-            # Add horizontal line at y=0.5 for reference
-            ax.axhline(y=0.5, color='gray', linestyle=':', alpha=0.5)
-            
-            # Highlight true state changes if provided
-            if true_states is not None:
-                # Get the true states for this episode
-                episode_true_states = true_states[start_idx:min(end_idx, len(true_states))]
-                
-                # Add vertical lines at state changes
-                prev_state = episode_true_states[0] if episode_true_states else None
-                for t, state in enumerate(episode_true_states):
-                    if state != prev_state:
-                        ax.axvline(x=t, color='red', linestyle='--', alpha=0.5)
-                        prev_state = state
+    # Create a single figure for this agent
+    fig_width = 10
+    fig_height = 6
     
-    # Set common x-axis label for the bottom row
-    for col in range(all_axes.shape[1]):
-        all_axes[-1, col].set_xlabel("Time Steps")
+    plt.figure(figsize=(fig_width, fig_height))
+    ax = plt.gca()
     
-    plt.tight_layout()
-    plt.suptitle(title, fontsize=16, y=1.02)
+    if use_latex:
+        set_latex_style()
     
-    if save_path:
-        try:
-            # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
-            
-            # Save the figure
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Saved belief distributions plot to {save_path}")
-            plt.close()
-        except Exception as e:
-            print(f"Error saving plot to {save_path}: {e}")
-            plt.close()
+    # Convert tensors to numpy
+    belief_values = []
+    for belief_dist in belief_distributions:
+        if isinstance(belief_dist, torch.Tensor):
+            # Handle different tensor shapes
+            if belief_dist.dim() > 1:
+                belief_np = belief_dist.squeeze().detach().cpu().numpy()
+            else:
+                belief_np = belief_dist.detach().cpu().numpy()
+        else:
+            belief_np = np.array(belief_dist)
+        
+        # Ensure we have the right dimensionality
+        if belief_np.size >= num_states:
+            belief_np = belief_np[:num_states]  # Truncate if larger
+        else:
+            # Pad with zeros if smaller
+            padded = np.zeros(num_states)
+            padded[:belief_np.size] = belief_np
+            belief_np = padded
+        
+        belief_values.append(belief_np)
+    
+    # Convert to numpy array
+    belief_values = np.array(belief_values)
+    
+    # Get time steps
+    time_steps = np.arange(len(belief_values))
+    
+    # Plot each state belief
+    colors = plt.cm.viridis(np.linspace(0, 1, num_states))
+    for state in range(num_states):
+        plt.plot(
+            time_steps, 
+            belief_values[:, state], 
+            label=f'State {state}',
+            color=colors[state],
+            linewidth=2
+        )
+    
+    # Highlight true state changes if available
+    if true_states:
+        # Limit true states to the length of belief values if needed
+        if len(true_states) > len(time_steps):
+            true_states = true_states[:len(time_steps)]
+        elif len(true_states) < len(time_steps):
+            # Pad with the last state
+            true_states = true_states + [true_states[-1]] * (len(time_steps) - len(true_states))
+        
+        # Add vertical lines at state changes
+        prev_state = true_states[0] if true_states else None
+        for t, state in enumerate(true_states):
+            if state != prev_state:
+                plt.axvline(x=t, color='red', linestyle='--', alpha=0.5)
+                prev_state = state
+        
+        # Color the background based on true state
+        state_changes = [0]  # Start of first state
+        current_state = true_states[0]
+        for t, state in enumerate(true_states[1:], 1):
+            if state != current_state:
+                state_changes.append(t)
+                current_state = state
+        state_changes.append(len(true_states))  # End of last state
+        
+        # Color regions based on state
+        for i in range(len(state_changes)-1):
+            start = state_changes[i]
+            end = state_changes[i+1]
+            state = true_states[start]
+            color = 'lightgreen' if state > 0 else 'lightcoral'  # Green for good state, red for bad
+            plt.axvspan(start, end, alpha=0.2, color=color)
+    
+    # Add horizontal line at 0.5 for reference
+    plt.axhline(y=0.5, color='gray', linestyle='--', alpha=0.5)
+    
+    # Add labels and title
+    plt.title(f'Agent {agent_id} Belief Distribution Over Time')
+    plt.xlabel('Time Steps')
+    plt.ylabel('Probability')
+    plt.ylim(0, 1.05)  # Set y-limit for probabilities
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Format axis in LaTeX style
+    format_axis_in_latex_style(ax)
+    
+    # Save figure
+    output_path = output_dir / f'agent_{agent_id}_belief_distribution.png'
+    if use_latex:
+        save_figure_for_publication(output_dir / f'agent_{agent_id}_belief_distribution', formats=['pdf', 'png'])
     else:
-        plt.show()
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    
+    plt.close()
 
 
 def plot_agent_actions(actions, true_states, title, save_path=None, episode_length=None, num_episodes=1):
@@ -786,3 +780,390 @@ def plot_agent_actions(actions, true_states, title, save_path=None, episode_leng
     else:
         plt.show()
         plt.close()
+
+def plot_agent_allocations(allocations, true_states=None, title="Agent Resource Allocations", 
+                           save_path=None, episode_length=None, num_agents=None):
+    """
+    Plot agent allocations to the risky arm over time.
+    
+    Args:
+        allocations: Dictionary mapping agent IDs to their allocation histories
+        true_states: Optional list of true environment states for background coloring
+        title: Plot title
+        save_path: Path to save the figure
+        episode_length: Length of the episode (for x-axis scaling)
+        num_agents: Number of agents (used if allocations is a 2D array)
+    """
+    plt.figure(figsize=(10, 6))
+    ax = plt.gca()
+    
+    # Determine the number of agents and allocations format
+    if isinstance(allocations, dict):
+        # If allocations is a dictionary, use the keys as agent IDs
+        agent_ids = sorted(allocations.keys())
+    elif isinstance(allocations, list) or isinstance(allocations, np.ndarray):
+        # If allocations is a list/array of arrays, create agent IDs
+        if num_agents is None:
+            if len(allocations) > 0 and hasattr(allocations[0], '__len__'):
+                num_agents = len(allocations[0])
+            else:
+                num_agents = 1
+        agent_ids = list(range(num_agents))
+        
+        # Reshape allocations into a dictionary
+        allocation_dict = {}
+        for t, alloc_t in enumerate(allocations):
+            for agent_id in range(num_agents):
+                if agent_id not in allocation_dict:
+                    allocation_dict[agent_id] = []
+                if hasattr(alloc_t, '__len__'):
+                    allocation_dict[agent_id].append(alloc_t[agent_id])
+                else:
+                    # If only one agent
+                    allocation_dict[agent_id].append(alloc_t)
+        allocations = allocation_dict
+    
+    # Plot each agent's allocation
+    for agent_id in agent_ids:
+        if agent_id not in allocations:
+            continue
+            
+        agent_allocs = allocations[agent_id]
+        time_steps = list(range(len(agent_allocs)))
+        
+        # Use different colors for different agents
+        agent_color = plt.cm.tab10(agent_id % 10)
+        
+        # Plot allocation trajectory
+        line, = ax.plot(time_steps, agent_allocs, 
+                      label=f"Agent {agent_id}",
+                      color=agent_color,
+                      linewidth=1.5)
+    
+    # Add horizontal lines for important thresholds
+    ax.axhline(y=0.0, color='gray', linestyle='--', alpha=0.5)
+    ax.axhline(y=0.5, color='gray', linestyle='--', alpha=0.5)
+    ax.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
+    
+    # Set axis labels and title
+    ax.set_xlabel("Time Steps")
+    ax.set_ylabel("Allocation to Risky Arm")
+    ax.set_title(title)
+    
+    # Set y-axis limits (allocations are between 0 and 1)
+    ax.set_ylim(-0.05, 1.05)
+    
+    # Add legend
+    ax.legend()
+    
+    # Add grid for better readability
+    ax.grid(True, alpha=0.3)
+    
+    # Apply LaTeX style if available
+    format_axis_in_latex_style(ax)
+    
+    # Save figure if path is provided
+    if save_path:
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Saved allocation plot to: {save_path}")
+    
+    # Show the plot
+    plt.close()
+
+def plot_allocations(metrics, output_dir, use_latex=False):
+    """Plot agent allocations over time for the Strategic Experimentation environment.
+    
+    Args:
+        metrics: Dictionary of metrics including allocations
+        output_dir: Directory to save plots
+        use_latex: Whether to use LaTeX styling
+    """
+    if 'allocations' not in metrics:
+        print("No allocation data available for plotting")
+        return
+        
+    plt.figure(figsize=(10, 6))
+    
+    if use_latex:
+        set_latex_style()
+    
+    # Get allocations for each agent
+    allocations = metrics['allocations']
+    num_agents = len(allocations)
+    
+    # Plot allocations for each agent
+    for agent_id, agent_allocations in allocations.items():
+        if len(agent_allocations) == 0:
+            continue
+            
+        # Convert to numpy array
+        if isinstance(agent_allocations[0], torch.Tensor):
+            allocations_np = [a.item() for a in agent_allocations]
+        else:
+            allocations_np = agent_allocations
+            
+        # Create x-axis (timesteps)
+        timesteps = range(len(allocations_np))
+        
+        # Plot
+        plt.plot(timesteps, allocations_np, label=f'Agent {agent_id}')
+    
+    # Add MPE allocation lines if available
+    if 'theoretical_bounds' in metrics and 'mpe_neutral' in metrics['theoretical_bounds']:
+        plt.axhline(y=metrics['theoretical_bounds']['mpe_neutral'], color='k', linestyle='--', alpha=0.5, label='MPE (neutral)')
+        plt.axhline(y=metrics['theoretical_bounds']['mpe_good_state'], color='g', linestyle='--', alpha=0.5, label='MPE (good state)')
+        plt.axhline(y=metrics['theoretical_bounds']['mpe_bad_state'], color='r', linestyle='--', alpha=0.5, label='MPE (bad state)')
+    
+    # Add title and labels
+    plt.title('Agent Resource Allocations Over Time')
+    plt.xlabel('Time Steps')
+    plt.ylabel('Allocation to Risky Arm')
+    plt.ylim(0, 1)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Save figure
+    if use_latex:
+        save_figure_for_publication(output_dir / 'agent_allocations', extension='pdf')
+    else:
+        plt.savefig(output_dir / 'agent_allocations.png', dpi=300, bbox_inches='tight')
+    
+    plt.close()
+
+def plot_kl_divergence(metrics, output_dir, use_latex=False):
+    """
+    Plot KL divergence between agent policies and the MPE over time.
+    
+    Args:
+        metrics: Dictionary of metrics including policy_kl_divergence
+        output_dir: Directory to save plots
+        use_latex: Whether to use LaTeX styling
+    """
+    if 'policy_kl_divergence' not in metrics or not metrics['policy_kl_divergence']:
+        print("No KL divergence data available for plotting")
+        return
+    
+    # Create figure with LaTeX-style dimensions if requested
+    fig_width = 10
+    fig_height = 6
+    
+    plt.figure(figsize=(fig_width, fig_height))
+    ax = plt.gca()
+    
+    if use_latex:
+        set_latex_style()
+    
+    # Get KL divergence for each agent
+    kl_divergences = metrics['policy_kl_divergence']
+    true_states = metrics.get('true_states', [])
+    
+    # Get number of agents and timesteps
+    num_agents = len(kl_divergences)
+    
+    # Plot KL divergence for each agent
+    for agent_id, agent_kl in kl_divergences.items():
+        if len(agent_kl) == 0:
+            continue
+            
+        # Create x-axis (timesteps)
+        timesteps = range(len(agent_kl))
+        
+        # Apply moving average for smoother plot
+        window_size = min(10, len(agent_kl) // 10) if len(agent_kl) > 10 else 1
+        if window_size > 1:
+            kernel = np.ones(window_size) / window_size
+            smooth_kl = np.convolve(agent_kl, kernel, mode='valid')
+            smooth_timesteps = timesteps[window_size-1:]
+            plt.plot(smooth_timesteps, smooth_kl, label=f'Agent {agent_id}')
+        else:
+            plt.plot(timesteps, agent_kl, label=f'Agent {agent_id}')
+    
+    # Add title and labels
+    plt.title('KL Divergence to MPE Policy Over Time')
+    plt.xlabel('Time Steps')
+    plt.ylabel('KL Divergence')
+    plt.yscale('log')  # Log scale for better visualization
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Add indicator lines for convergence thresholds
+    plt.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, label='High divergence')
+    plt.axhline(y=0.1, color='gray', linestyle='--', alpha=0.5, label='Medium divergence')
+    plt.axhline(y=0.01, color='gray', linestyle='--', alpha=0.5, label='Low divergence')
+    
+    # Set y-axis limits
+    plt.ylim(bottom=0.001)  # Set minimum to avoid log scale issues
+    
+    # Format axis in LaTeX style
+    format_axis_in_latex_style(ax)
+    
+    # Save figure
+    if use_latex:
+        save_figure_for_publication(output_dir / 'kl_divergence', formats=['pdf', 'png'])
+    else:
+        plt.savefig(output_dir / 'kl_divergence.png', dpi=300, bbox_inches='tight')
+    
+    plt.close()
+
+def plot_belief_states(metrics, agent_id, output_dir, use_latex=False):
+    """
+    Plot belief states over time for a specific agent.
+    
+    Args:
+        metrics: Dictionary of metrics including belief_states
+        agent_id: ID of the agent to plot for
+        output_dir: Directory to save plots
+        use_latex: Whether to use LaTeX styling
+    """
+    if 'belief_states' not in metrics or agent_id not in metrics['belief_states']:
+        print(f"No belief state data available for agent {agent_id}")
+        return
+    
+    # Get agent's belief state history
+    belief_states = metrics['belief_states'][agent_id]
+    if not belief_states:
+        print(f"Empty belief state history for agent {agent_id}")
+        return
+    
+    # Convert tensors to numpy if needed
+    belief_arrays = []
+    for belief in belief_states:
+        if isinstance(belief, torch.Tensor):
+            # Handle different tensor shapes
+            if belief.dim() == 3:  # [1, batch_size, belief_dim]
+                belief = belief.squeeze(0).squeeze(0).detach().cpu().numpy()
+            elif belief.dim() == 2:  # [batch_size, belief_dim]
+                belief = belief.squeeze(0).detach().cpu().numpy()
+            elif belief.dim() == 1:  # [belief_dim]
+                belief = belief.detach().cpu().numpy()
+        elif isinstance(belief, (list, np.ndarray)):
+            belief = np.array(belief).flatten()  # Ensure it's a flat array
+        
+        belief_arrays.append(belief)
+    
+    # Get dimensions based on first belief state
+    if not belief_arrays:
+        print(f"Could not process belief state data for agent {agent_id}")
+        return
+        
+    belief_dim = len(belief_arrays[0])
+    timesteps = range(len(belief_arrays))
+    
+    # Create figure with LaTeX-style dimensions if requested
+    fig_width = 10
+    fig_height = 6
+    
+    plt.figure(figsize=(fig_width, fig_height))
+    ax = plt.gca()
+    
+    if use_latex:
+        set_latex_style()
+    
+    # Plot each belief dimension
+    for dim in range(min(belief_dim, 10)):  # Limit to 10 dimensions to avoid overcrowding
+        values = [belief[dim] for belief in belief_arrays]
+        plt.plot(timesteps, values, label=f'Dim {dim}')
+    
+    # Add title and labels
+    plt.title(f'Agent {agent_id} Belief State Evolution')
+    plt.xlabel('Time Steps')
+    plt.ylabel('Belief State Value')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Format axis in LaTeX style
+    format_axis_in_latex_style(ax)
+    
+    # Save figure
+    output_path = output_dir / f'agent_{agent_id}_belief_states.png'
+    if use_latex:
+        save_figure_for_publication(output_dir / f'agent_{agent_id}_belief_states', formats=['pdf', 'png'])
+    else:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    
+    plt.close()
+    
+    # Also plot belief distributions if available
+    if 'belief_distributions' in metrics and agent_id in metrics['belief_distributions'] and 'num_states' in dir(metrics):
+        # Try to get number of states from metrics or environment reference
+        num_states = metrics.get('num_states', 2)  # Default to 2 if not available
+        plot_belief_distributions(metrics, agent_id, num_states, output_dir, use_latex)
+
+def plot_latent_states(metrics, agent_id, output_dir, use_latex=False):
+    """
+    Plot latent states over time for a specific agent.
+    
+    Args:
+        metrics: Dictionary of metrics including latent_states
+        agent_id: ID of the agent to plot for
+        output_dir: Directory to save plots
+        use_latex: Whether to use LaTeX styling
+    """
+    if 'latent_states' not in metrics or agent_id not in metrics['latent_states']:
+        print(f"No latent state data available for agent {agent_id}")
+        return
+    
+    # Get agent's latent state history
+    latent_states = metrics['latent_states'][agent_id]
+    if not latent_states:
+        print(f"Empty latent state history for agent {agent_id}")
+        return
+    
+    # Convert tensors to numpy if needed
+    latent_arrays = []
+    for latent in latent_states:
+        if isinstance(latent, torch.Tensor):
+            # Handle different tensor shapes
+            if latent.dim() == 3:  # [1, batch_size, latent_dim]
+                latent = latent.squeeze(0).squeeze(0).detach().cpu().numpy()
+            elif latent.dim() == 2:  # [batch_size, latent_dim]
+                latent = latent.squeeze(0).detach().cpu().numpy()
+            elif latent.dim() == 1:  # [latent_dim]
+                latent = latent.detach().cpu().numpy()
+        elif isinstance(latent, (list, np.ndarray)):
+            latent = np.array(latent).flatten()  # Ensure it's a flat array
+        
+        latent_arrays.append(latent)
+    
+    # Get dimensions based on first latent state
+    if not latent_arrays:
+        print(f"Could not process latent state data for agent {agent_id}")
+        return
+        
+    latent_dim = len(latent_arrays[0])
+    timesteps = range(len(latent_arrays))
+    
+    # Create figure with LaTeX-style dimensions if requested
+    fig_width = 10
+    fig_height = 6
+    
+    plt.figure(figsize=(fig_width, fig_height))
+    ax = plt.gca()
+    
+    if use_latex:
+        set_latex_style()
+    
+    # Plot each latent dimension
+    for dim in range(min(latent_dim, 10)):  # Limit to 10 dimensions to avoid overcrowding
+        values = [latent[dim] for latent in latent_arrays]
+        plt.plot(timesteps, values, label=f'Dim {dim}')
+    
+    # Add title and labels
+    plt.title(f'Agent {agent_id} Latent State Evolution')
+    plt.xlabel('Time Steps')
+    plt.ylabel('Latent State Value')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Format axis in LaTeX style
+    format_axis_in_latex_style(ax)
+    
+    # Save figure
+    output_path = output_dir / f'agent_{agent_id}_latent_states.png'
+    if use_latex:
+        save_figure_for_publication(output_dir / f'agent_{agent_id}_latent_states', formats=['pdf', 'png'])
+    else:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    
+    plt.close()

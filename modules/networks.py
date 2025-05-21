@@ -124,7 +124,7 @@ class TransformerBeliefProcessor(nn.Module):
             
             # Calculate belief distribution
             logits = self.belief_head(new_belief.squeeze(0))
-            temperature = 0.5  # Temperature for softmax
+            temperature = 1  # Temperature for softmax
             belief_distribution = F.softmax(logits/temperature, dim=-1)
             
             # Ensure new_belief maintains shape [1, batch_size, hidden_dim]
@@ -213,7 +213,7 @@ class EncoderNetwork(nn.Module):
         
         # Calculate opponent belief distribution
         logits = self.opponent_belief_head(x)
-        temperature = 0.5  # Temperature for softmax
+        temperature = 1  # Temperature for softmax
         opponent_belief_distribution = F.softmax(logits/temperature, dim=-1)
         
         return mean, logvar, opponent_belief_distribution
@@ -326,6 +326,84 @@ class PolicyNetwork(nn.Module):
         action_logits = self.fc3(x)
         
         return action_logits
+
+class ContinuousPolicyNetwork(nn.Module):
+    """Policy network for continuous actions in strategic experimentation."""
+    def __init__(self, belief_dim, latent_dim, action_dim, hidden_dim, device=None, min_action=0.0, max_action=1.0):
+        # Use the best available device if none is specified
+        if device is None:
+            device = get_best_device()
+        super(ContinuousPolicyNetwork, self).__init__()
+        self.device = device
+        self.action_dim = action_dim
+        self.min_action = min_action
+        self.max_action = max_action
+        
+        # Combined input: belief only (not using latent)
+        # Note: For the strategic experimentation task, we're only using belief state
+        input_dim = belief_dim
+        
+        # Policy network layers
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        
+        # Mean and log_std output heads
+        self.mean_head = nn.Linear(hidden_dim, action_dim)
+        self.log_std_head = nn.Linear(hidden_dim, action_dim)
+        
+        # Initialize parameters
+        nn.init.xavier_normal_(self.fc1.weight)
+        nn.init.xavier_normal_(self.fc2.weight)
+        nn.init.xavier_normal_(self.mean_head.weight)
+        nn.init.xavier_normal_(self.log_std_head.weight)
+        
+        # Initialize log_std bias to produce small initial std
+        nn.init.constant_(self.log_std_head.bias, -2)
+    
+    def forward(self, belief, latent):
+        """Compute action distribution parameters (mean and log std) given belief and latent."""
+        # Handle different input dimensions
+        if belief.dim() == 3:  # [seq_len, batch_size, belief_dim]
+            belief = belief.squeeze(0)  # Remove sequence dimension
+        if belief.dim() == 1:  # [belief_dim]
+            belief = belief.unsqueeze(0)  # Add batch dimension
+            
+        # Forward pass using only belief state
+        combined = belief
+        
+        # Forward pass
+        x = F.relu(self.fc1(combined))
+        x = F.relu(self.fc2(x))
+        
+        # Extract mean and log_std
+        mean = torch.sigmoid(self.mean_head(x))  # Sigmoid for [0,1] range
+        log_std = self.log_std_head(x)
+        
+        # Clamp log_std for numerical stability
+        log_std = torch.clamp(log_std, min=-20, max=2)
+        
+        # Scale mean to action range
+        scaled_mean = self.min_action + (self.max_action - self.min_action) * mean
+        
+        return scaled_mean, log_std
+    
+    def sample_action(self, belief, latent):
+        """Sample an action from the policy distribution."""
+        mean, log_std = self.forward(belief, latent)
+        std = log_std.exp()
+        
+        # Sample from normal distribution
+        normal = torch.distributions.Normal(mean, std)
+        x_t = normal.rsample()  # Reparameterization trick
+        
+        # Apply tanh squashing to ensure actions are bounded
+        action = torch.clamp(x_t, self.min_action, self.max_action)
+        
+        # Calculate log probability
+        log_prob = normal.log_prob(x_t)
+        
+        # Return action, log probability, and mean
+        return action, log_prob, mean
 
 class QNetwork(nn.Module):
     """Q-function network for evaluating state-action values."""
@@ -456,7 +534,7 @@ class TemporalGNN(nn.Module):
         
         Args:
             signals: Tensor of shape [batch_size, num_belief_states]
-            neighbor_actions: Tensor of shape [batch_size, num_agents * action_dim]
+            neighbor_actions: Tensor of shape [batch_size, num_agents] or [batch_size, num_agents * action_dim]
             agent_id: ID of the current agent
             
         Returns:
@@ -465,8 +543,16 @@ class TemporalGNN(nn.Module):
         """
         batch_size = signals.size(0)
         
-        # Reshape neighbor actions to [batch_size, num_agents, action_dim]
-        neighbor_actions_reshaped = neighbor_actions.view(batch_size, self.num_agents, self.action_dim)
+        # Check if we're using continuous or discrete actions based on neighbor_actions shape
+        using_continuous = neighbor_actions.size(1) == self.num_agents
+        
+        if using_continuous:
+            # Continuous actions format: [batch_size, num_agents]
+            neighbor_actions_reshaped = neighbor_actions
+        else:
+            # Discrete actions format: [batch_size, num_agents * action_dim]
+            # Reshape to [batch_size, num_agents, action_dim]
+            neighbor_actions_reshaped = neighbor_actions.view(batch_size, self.num_agents, self.action_dim)
         
         # Create node features by concatenating belief state with actions
         # For each agent, we'll create a node with its own feature
@@ -475,7 +561,13 @@ class TemporalGNN(nn.Module):
         # Add the current agent's node first
         for b in range(batch_size):
             # Current agent's features: concatenate signal with its own action
-            agent_action = neighbor_actions_reshaped[b, agent_id]
+            if using_continuous:
+                # For continuous case, we expand the single value to match dimensions
+                agent_action = torch.zeros(self.action_dim)
+                agent_action[0] = neighbor_actions_reshaped[b, agent_id]
+            else:
+                agent_action = neighbor_actions_reshaped[b, agent_id]
+                
             agent_features = torch.cat([signals[b], agent_action], dim=-1)
             node_features.append(agent_features)
             
@@ -483,7 +575,13 @@ class TemporalGNN(nn.Module):
             for n in range(self.num_agents):
                 if n != agent_id:
                     # For neighbor agents: concatenate zeros (no belief) with actions
-                    neighbor_action = neighbor_actions_reshaped[b, n]
+                    if using_continuous:
+                        # For continuous case, expand the single value
+                        neighbor_action = torch.zeros(self.action_dim)
+                        neighbor_action[0] = neighbor_actions_reshaped[b, n]
+                    else:
+                        neighbor_action = neighbor_actions_reshaped[b, n]
+                        
                     neighbor_belief = torch.zeros_like(signals[b])  # We don't know their beliefs directly
                     neighbor_features = torch.cat([neighbor_belief, neighbor_action], dim=-1)
                     node_features.append(neighbor_features)
@@ -666,7 +764,7 @@ class TemporalGNN(nn.Module):
         
         # Calculate belief distribution
         logits = self.belief_head(gnn_output)
-        temperature = 0.5  # Temperature for softmax
+        temperature = 1  # Temperature for softmax
         belief_distribution = F.softmax(logits/temperature, dim=-1)
         
         return mean, logvar, belief_distribution

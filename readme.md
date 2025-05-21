@@ -1,247 +1,165 @@
-# POLARIS Social Learning Framework
+# POLARIS - Partially Observable Learning with Active Reinforcement In Social Environments
 
-A modular deep reinforcement learning framework for multi-agent social learning and coordination, extending the [FURTHER](https://github.com/dkkim93/further) framework by Dong-Ki Kim et al.
-
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/release/python-380/)
-[![PyTorch 1.8+](https://img.shields.io/badge/pytorch-1.8+-orange.svg)](https://pytorch.org/)
+POLARIS is a framework for multi-agent reinforcement learning in social learning environments, implementing different approaches from economic theory to understand and model strategic learning behavior.
 
 ## Overview
 
-POLARIS (Partially Observable Learning with Active Reinforcement In Social environments) is a framework designed to study how agents learn from each other in social networks. It implements a multi-agent reinforcement learning environment where agents must coordinate their actions based on partial observations and neighbor interactions within configurable network topologies.
+This repository implements two key frameworks from economic social learning theory:
 
-This framework extends the original [FURTHER](https://arxiv.org/pdf/2203.03535.pdf) framework (Kim et al., NeurIPS 2022) with enhanced capabilities specifically for social learning scenarios. While the original FURTHER focused on influencing long-term behavior in multiagent reinforcement learning, POLARIS adds specialized components for belief modeling, information propagation through networks, and advantage-weighted training.
+1. **Brandl Framework** (Learning without Experimentation): Agents learn from private signals and by observing other agents' actions, without direct payoff feedback from their own actions.
 
-The framework enables researchers to investigate emergent social learning phenomena, information diffusion dynamics, and collective intelligence in artificial agent networks.
+2. **Strategic Experimentation Framework** (Keller-Rady Model): Agents allocate resources between a safe arm with known payoff and a risky arm with unknown state-dependent payoff, learning from their own and others' observed rewards.
 
-## Key Features
-
-- **Modular Architecture**: Clean separation of environment, agent models, and simulation logic
-- **Customizable Network Topologies**: Experiment with complete, ring, star, or random network structures
-- **Sophisticated Agent Architecture**:
-  - Transformer-based belief processor for tracking agent internal state
-  - Latent variable model for inferring other agents' states
-  - Advantage-weighted belief learning mechanism
-  - Graph Neural Network option for network-aware representations
-- **Neural Architecture Options**:
-  - Transformer-based belief processing
-  - Graph Neural Networks with temporal attention
-  - Traditional encoder-decoder architectures
-- **Comprehensive Analysis Tools**:
-  - Real-time learning rate estimation
-  - Belief and latent state visualization
-  - Theoretical bounds comparison
-  - Publication-quality plots
-
-## Neural Architecture
-
-POLARIS offers multiple neural architectures that can be selected based on research needs:
-
-### Transformer-Based Belief Processor
-
-The default belief processor uses a Transformer architecture with self-attention to better capture temporal dependencies in observed signals and neighbor actions. Key advantages include:
-
-- Better handling of long-range dependencies in observation sequences
-- Improved information extraction from neighbor behaviors
-- Superior performance in complex social learning scenarios
-
-### Graph Neural Networks with Temporal Attention
-
-For network-aware representations, POLARIS implements a Graph Neural Network with temporal attention that can be enabled with `--use-gnn`:
-
-- Represents agents and their interactions as nodes and edges in a graph
-- Maintains a temporal memory of past states and applies attention
-- Adapts to different network topologies automatically
-- Configurable with `--gnn-layers`, `--attn-heads`, and `--temporal-window`
+Both frameworks are implemented using the Partially Observable Active Markov Game (POAMG) formalism, which extends standard reinforcement learning to account for partial observability and strategic influence between agents.
 
 ## Installation
 
+1. Clone the repository:
 ```bash
-# Clone the repository
-git clone https://github.com/ecdogaroglu/polaris.git
+git clone https://github.com/yourusername/polaris.git
 cd polaris
+```
 
-# Install dependencies
+2. Install the required packages:
+```bash
 pip install -r requirements.txt
 ```
 
-## Quick Start
+## Usage
 
-### Basic Training
+### General Command
 
-```bash
-python experiment.py --num-agents 4 --network-type complete --horizon 1000
-```
-
-### Evaluation with Pre-trained Models
+The main script `experiment.py` allows running experiments with either framework:
 
 ```bash
-python experiment.py --eval-only --load-model --num-agents 4 --horizon 500
+python experiment.py --environment-type [brandl|strategic_experimentation] [options]
 ```
 
-## Usage Guide
+### Specialized Scripts
 
-### Training Configuration
+For convenience, we provide specialized scripts for each framework:
 
-POLARIS offers extensive customization for training agents:
+- For Brandl framework (learning without experimentation):
+```bash
+python brandl_experiment.py [options]
+```
+
+- For Strategic Experimentation framework:
+```bash
+python strategic_experiment.py [options]
+```
+
+### Comparing Both Frameworks
+
+To run both frameworks and compare them:
 
 ```bash
-python experiment.py \
-  --num-agents 6 \
-  --network-type random \
-  --network-density 0.5 \
-  --signal-accuracy 0.75 \
-  --horizon 2000 \
-  --num-episodes 5 \
-  --hidden-dim 128 \
-  --belief-dim 128 \
-  --latent-dim 64 \
-  --discount-factor 0.99 \
-  --entropy-weight 0.01 \
-  --kl-weight 0.1 \
-  --learning-rate 0.001 \
-  --batch-size 64 \
-  --buffer-capacity 5000 \
-  --update-interval 1 \
-  --use-gnn \
-  --gnn-layers 2 \
-  --attn-heads 4 \
-  --temporal-window 5 \
-  --exp-name "custom_experiment" \
-  --save-model
+python experiment.py --compare-frameworks
 ```
 
-### Visualization Options
+## Key Parameters
 
-The framework provides rich visualization capabilities for analyzing agent behavior:
+### Shared Parameters
+
+- `--num-agents`: Number of agents (default: 2)
+- `--num-states`: Number of possible states (default: 2)
+- `--network-type`: Network structure (choices: 'complete', 'ring', 'star', 'random', default: 'complete')
+- `--network-density`: Density for random networks (default: 0.5)
+- `--horizon`: Total number of steps per episode (default: 1000)
+- `--num-episodes`: Number of episodes for training (default: 1)
+- `--seed`: Random seed (default: 42)
+
+### Brandl Framework Parameters
+
+- `--signal-accuracy`: Accuracy of private signals (default: 0.75)
+
+### Strategic Experimentation Parameters
+
+- `--safe-payoff`: Deterministic payoff of the safe arm (default: 1.0)
+- `--drift-rates`: Comma-separated list of drift rates for each state (default: "-0.5,0.5")
+- `--diffusion-sigma`: Volatility of the diffusion component (default: 0.5)
+- `--jump-rates`: Comma-separated list of Poisson rates for jumps in each state (default: "0.1,0.2")
+- `--jump-sizes`: Comma-separated list of expected jump sizes in each state (default: "1.0,1.0")
+- `--background-informativeness`: Informativeness of the background signal process (default: 0.1)
+- `--time-step`: Size of time step for discretizing the Lévy processes (default: 0.1)
+
+### Agent Parameters
+
+- `--discount-factor`: Discount factor for RL (0 = average reward, default: 0.9)
+- `--entropy-weight`: Entropy bonus weight (default: 0.5)
+- `--use-gnn`: Use Graph Neural Network with temporal attention
+- `--use-si`: Use Synaptic Intelligence to prevent catastrophic forgetting
+
+## Examples
+
+### Running a Brandl Experiment
 
 ```bash
-# Enable internal state visualizations
-python experiment.py --eval-only --load-model --plot-internal-states
-
-# Specify visualization type
-python experiment.py --eval-only --load-model --plot-internal-states --plot-type belief
-
-# Generate publication-quality plots
-python experiment.py --eval-only --load-model --latex-style
-
-# Use LaTeX rendering for text (requires LaTeX installation)
-python experiment.py --eval-only --load-model --latex-style --use-tex
+python brandl_experiment.py --num-agents 4 --network-type complete --signal-accuracy 0.8
 ```
 
-### Visualization Types
+### Running a Strategic Experimentation Experiment
 
-1. **Incorrect Action Probabilities**: Shows how quickly agents learn the correct state
-2. **Belief Distributions**: Visualizes the evolution of agent belief states over time
-3. **Agent Actions**: Plots the actions taken by agents compared to the true state
-4. **Latent Representations**: Shows how agents model other agents in their latent space
-
-## Command Line Arguments
-
-| Argument | Description | Default |
-|----------|-------------|---------|
-| `--num-agents` | Number of agents in the network | 2 |
-| `--signal-accuracy` | Accuracy of private signals | 0.75 |
-| `--network-type` | Network structure (complete, ring, star, random) | complete |
-| `--network-density` | Density for random networks | 0.5 |
-| `--horizon` | Total number of steps per episode | 1000 |
-| `--num-episodes` | Number of episodes for training | 1 |
-| `--batch-size` | Batch size | 64 |
-| `--buffer-capacity` | Replay buffer capacity | 1000 |
-| `--learning-rate` | Learning rate | 0.001 |
-| `--update-interval` | Steps between updates | 1 |
-| `--hidden-dim` | Hidden layer dimension | 128 |
-| `--belief-dim` | Belief state dimension | 128 |
-| `--latent-dim` | Latent space dimension | 128 |
-| `--discount-factor` | Discount factor (0 = average reward) | 0.9 |
-| `--entropy-weight` | Entropy bonus weight | 0.5 |
-| `--kl-weight` | KL weight for inference | 10 |
-| `--use-gnn` | Use Graph Neural Network with temporal attention | False |
-| `--gnn-layers` | Number of GNN layers | 2 |
-| `--attn-heads` | Number of attention heads in GNN | 4 |
-| `--temporal-window` | Temporal window size for GNN memory | 5 |
-| `--seed` | Random seed | 42 |
-| `--output-dir` | Output directory | results |
-| `--exp-name` | Experiment name | brandl_validation |
-| `--save-model` | Save agent models | False |
-| `--load-model` | Load model | None |
-| `--eval-only` | Run evaluation only | False |
-| `--train-then-evaluate` | Train for 4 episodes with horizon 1000, then evaluate | False |
-| `--plot-internal-states` | Enable internal state visualizations | False |
-| `--plot-type` | Visualization type (belief, latent, both) | both |
-| `--latex-style` | Use LaTeX-style formatting for plots | False |
-| `--use-tex` | Use LaTeX rendering for text in plots | False |
-
-## Advanced Analysis
-
-POLARIS enables sophisticated analysis of multi-agent learning dynamics:
-
-- **Learning Rate Estimation**: Automatically calculates exponential learning rates for each agent
-- **Theoretical Bounds Comparison**: Compares agent performance against theoretical bounds from [Brandl (2024)]
-- **Belief Dynamics**: Visualize how agent beliefs evolve and converge with experience
-- **Network Effects**: Study how different network topologies affect information flow and learning
-
-## Project Structure
-
-```
-polaris/
-├── experiment.py          # Main experiment script
-├── modules/
-│   ├── __init__.py        # Package initialization
-│   ├── agent.py           # POLARIS agent implementation
-│   ├── args.py            # Command line argument parsing
-│   ├── environment.py     # Social learning environment
-│   ├── metrics.py         # Evaluation metrics collection
-│   ├── networks.py        # Neural network architectures
-│   ├── plotting.py        # Visualization functions
-│   ├── replay_buffer.py   # Sequential experience replay
-│   ├── simulation.py      # Main simulation logic
-│   └── utils.py           # Utility functions
-├── results/               # Experiment results directory
-├── requirements.txt       # Package dependencies
-└── README.md              # This file
+```bash
+python strategic_experiment.py --num-agents 2 --network-type complete --safe-payoff 1.5 --drift-rates "-0.4,0.6" --background-informativeness 0.2
 ```
 
-## Requirements
+### Network Size Comparison
 
-- Python 3.8+
-- PyTorch 1.8+
-- NumPy
-- Matplotlib
-- NetworkX
-- scikit-learn
-- tqdm
-- torch-geometric (for GNN functionality)
+```bash
+python brandl_experiment.py --compare-sizes --network-sizes 2,4,8,16 --network-type complete
+```
+
+### Training and Evaluation
+
+```bash
+python brandl_experiment.py --train-then-evaluate --num-episodes 5 --horizon 5000
+```
+
+## Architecture
+
+The framework is built with a modular architecture:
+
+1. **Base Environment**: Abstract base class that defines the interface for all environment implementations
+2. **Specific Environments**:
+   - `SocialLearningEnvironment`: Implements the Brandl framework
+   - `StrategicExperimentationEnvironment`: Implements the Keller-Rady model
+3. **POLARIS Agent**: Reinforcement learning agent with three key components:
+   - Belief processing module using Transformers
+   - Inference learning module with GNNs
+   - RL module with MASAC (Multi-Agent Soft Actor-Critic)
+
+## Theoretical Foundations
+
+- **Brandl Framework**: Based on [Brandl (2024)](https://github.com/ecdogaroglu/POLARIS), focusing on learning without experimentation through action observation.
+- **Strategic Experimentation**: Based on Keller and Rady (2020), focusing on resource allocation under uncertainty with observable rewards.
+
+Both implementations are within the Partially Observable Active Markov Game framework, which captures how agents strategically influence each other's learning processes.
+
+## Visualization and Analysis
+
+The framework includes tools for visualizing results:
+
+- Learning curves and convergence rates
+- Network influence visualizations
+- Belief state evolution
+- Comparison with theoretical bounds
 
 ## Citation
 
-If you use POLARIS in your research, please cite:
+If you use this code in your research, please cite:
 
 ```bibtex
-@misc{dogaroglu2025polaris,
-  author = {Dogaroglu, Ege Can},
-  title = {POLARIS: Partially Observable Learning with Active Reinforcement In Social environments},
-  year = {2025},
+@misc{dogaroglu2024polaris,
+  author = {Doğaroğlu, Ege Can},
+  title = {POLARIS: Partially Observable Learning with Active Reinforcement In Social Environments},
+  year = {2024},
   publisher = {GitHub},
   journal = {GitHub repository},
-  howpublished = {\url{https://github.com/ecdogaroglu/polaris}}
-}
-```
-
-And also cite the original FURTHER framework:
-
-```bibtex
-@inproceedings{kim2022further,
-  title={Influencing Long-Term Behavior in Multiagent Reinforcement Learning},
-  author={Kim, Dong-Ki and Riemer, Matthew D and Liu, Miao and Foerster, Jakob Nicolaus and Everett, Michael and Sun, Chuangchuang and Tesauro, Gerald and How, Jonathan P},
-  booktitle={Advances in Neural Information Processing Systems},
-  editor={Oh, Alice H. and Agarwal, Alekh and Belgrave, Danielle and Cho, Kyunghyun},
-  year={2022},
-  url={https://openreview.net/forum?id=_S9amb2-M-I}
+  howpublished = {\url{https://github.com/ecdogaroglu/POLARIS}}
 }
 ```
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-The original FURTHER framework is also licensed under the MIT License, Copyright (c) 2022 Dong-Ki Kim.
+MIT License

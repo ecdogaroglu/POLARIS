@@ -11,7 +11,7 @@ import torch
 import numpy as np
 from pathlib import Path
 
-from modules.environment import SocialLearningEnvironment
+from modules.environment import SocialLearningEnvironment, StrategicExperimentationEnvironment
 from modules.args import parse_args
 from modules.simulation import run_agents
 
@@ -26,7 +26,6 @@ def main():
     np.random.seed(args.seed)
 
     if args.train_then_evaluate:
-
         # Train
         args.num_episodes = 2
         args.horizon = 10000
@@ -49,21 +48,65 @@ def main():
         args.visualize_si = False  # No need to visualize during evaluation
         run_experiment(args)
 
+    elif args.compare_frameworks:
+        # Run both Brandl and Strategic Experimentation frameworks
+        print("=== Running comparison between Brandl and Strategic Experimentation frameworks ===")
+        
+        # Run Brandl framework
+        print("\n=== Running Brandl framework ===\n")
+        args.environment_type = 'brandl'
+        args.exp_name = 'brandl_framework'
+        run_experiment(args)
+        
+        # Run Strategic Experimentation framework
+        print("\n=== Running Strategic Experimentation framework ===\n")
+        args.environment_type = 'strategic_experimentation'
+        args.exp_name = 'strategic_experimentation_framework'
+        run_experiment(args)
+        
+        print("\n=== Comparison complete ===")
     else:
         run_experiment(args)
 
 
 def run_experiment(args):
     """Run the experiment with the given arguments."""
-        # Create environment
-    env = SocialLearningEnvironment(
-        num_agents=args.num_agents,
-        signal_accuracy=args.signal_accuracy,
-        network_type=args.network_type,
-        network_params={'density': args.network_density} if args.network_type == 'random' else None,
-        horizon=args.horizon,
-        seed=args.seed
-    )
+    # Create appropriate environment based on args
+    if args.environment_type == 'brandl':
+        # Create Brandl social learning environment
+        env = SocialLearningEnvironment(
+            num_agents=args.num_agents,
+            num_states=args.num_states,
+            signal_accuracy=args.signal_accuracy,
+            network_type=args.network_type,
+            network_params={'density': args.network_density} if args.network_type == 'random' else None,
+            horizon=args.horizon,
+            seed=args.seed
+        )
+        env_type = "brandl"
+    elif args.environment_type == 'strategic_experimentation':
+        # Create Strategic Experimentation environment
+        env = StrategicExperimentationEnvironment(
+            num_agents=args.num_agents,
+            num_states=args.num_states,
+            network_type=args.network_type,
+            network_params={'density': args.network_density} if args.network_type == 'random' else None,
+            horizon=args.horizon,
+            seed=args.seed,
+            safe_payoff=args.safe_payoff,
+            drift_rates=args.drift_rates_list if hasattr(args, 'drift_rates_list') else None,
+            diffusion_sigma=args.diffusion_sigma,
+            jump_rates=args.jump_rates_list if hasattr(args, 'jump_rates_list') else None,
+            jump_sizes=args.jump_sizes_list if hasattr(args, 'jump_sizes_list') else None,
+            background_informativeness=args.background_informativeness,
+            time_step=args.time_step
+        )
+        env_type = "strategic_experimentation"
+    else:
+        raise ValueError(f"Unknown environment type: {args.environment_type}")
+    
+    # Keep track of environment type
+    args.env_type = env_type
     
     # Determine model path for loading
     model_path = None
@@ -77,6 +120,16 @@ def run_experiment(args):
             model_path = Path(args.load_model)
             print(f"Loading models from specified path: {model_path}")
     
+    # Print experiment information
+    print(f"Running experiment with {args.environment_type} environment")
+    print(f"Network type: {args.network_type}, Number of agents: {args.num_agents}")
+    
+    if args.environment_type == 'brandl':
+        print(f"Signal accuracy: {args.signal_accuracy}")
+    else:
+        print(f"Safe payoff: {args.safe_payoff}")
+        print(f"Drift rates: {args.drift_rates_list if hasattr(args, 'drift_rates_list') else 'default'}")
+    
     # Print episode information if training
     if not args.eval_only and args.num_episodes > 1:
         print(f"Training with {args.num_episodes} episodes, {args.horizon} steps per episode")
@@ -87,6 +140,7 @@ def run_experiment(args):
         run_agents(env, args, training=False, model_path=model_path)
     else:
         run_agents(env, args, training=True, model_path=model_path)
+
 
 if __name__ == "__main__":
     main()

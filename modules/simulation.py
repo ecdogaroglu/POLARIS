@@ -16,7 +16,6 @@ from modules.utils import (
     write_config_file,
     flatten_episodic_metrics,
     save_final_models,
-    save_checkpoint_models,
     set_metrics,
     reset_agent_internal_states,
     update_total_rewards,
@@ -28,7 +27,6 @@ from modules.metrics import (
     initialize_metrics, 
     update_metrics, 
     calculate_agent_learning_rates_from_metrics,
-    display_learning_rate_summary,
     prepare_serializable_metrics,
     save_metrics_to_file
 )
@@ -67,7 +65,7 @@ def run_agents(env, args, training=True, model_path=None):
 
     # Calculate and display theoretical bounds
     theoretical_bounds = calculate_theoretical_bounds(env)
-    display_theoretical_bounds(theoretical_bounds)
+    #display_theoretical_bounds(theoretical_bounds)
     
     replay_buffers = initialize_replay_buffers(agents, args, obs_dim)
 
@@ -107,7 +105,6 @@ def run_agents(env, args, training=True, model_path=None):
     
     # Process results
     learning_rates = calculate_agent_learning_rates_from_metrics(combined_metrics)
-    display_learning_rate_summary(learning_rates, theoretical_bounds['bound_rate'])
     
     # Create SI visualizations after training is complete
     if hasattr(args, 'visualize_si') and args.visualize_si and training:
@@ -189,14 +186,68 @@ def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, train
         else:
             agent.set_eval_mode()
     
+    # Extract environment parameters for MPE calculation if this is Strategic Experimentation
+    env_params = {}
+    if hasattr(env, 'safe_payoff'):
+        env_params = {
+            'safe_payoff': env.safe_payoff,
+            'drift_rates': env.drift_rates,
+            'jump_rates': env.jump_rates,
+            'jump_sizes': env.jump_sizes if hasattr(env, 'jump_sizes') else [1.0] * env.num_states,
+            'background_informativeness': env.background_informativeness,
+            'num_agents': env.num_agents
+        }
+    
     # Main simulation loop
     steps_iterator = tqdm(range(args.horizon), desc="Training" if training else "Evaluating")
     for step in steps_iterator:
         # Get agent actions
         actions, action_probs = select_agent_actions(agents, metrics)
         
+        # Collect policy means and standard deviations for continuous actions
+        policy_means = []
+        policy_stds = []
+        
+        # Collect agent beliefs for MPE calculation
+        agent_beliefs = {}
+        
+        if hasattr(args, 'continuous_actions') and args.continuous_actions:
+            for agent_id, agent in agents.items():
+                if hasattr(agent, 'action_mean') and hasattr(agent.policy, 'forward'):
+                    # Get policy parameters directly
+                    with torch.no_grad():
+                        mean, log_std = agent.policy(agent.current_belief, agent.current_latent)
+                        std = torch.exp(log_std)
+                    
+                    policy_means.append(mean.item())
+                    policy_stds.append(std.item())
+                    
+                    # Extract agent's belief about the state
+                    if hasattr(agent, 'current_belief_distribution') and agent.current_belief_distribution is not None:
+                        # For binary state (common case), the belief about good state is the probability assigned to state 1
+                        if agent.current_belief_distribution.shape[-1] == 2:
+                            agent_beliefs[agent_id] = agent.current_belief_distribution[0, 1].item()
+                        else:
+                            # For multi-state cases, use a weighted average
+                            belief_weights = torch.arange(agent.current_belief_distribution.shape[-1], 
+                                                          device=agent.current_belief_distribution.device).float()
+                            belief_weights = belief_weights / (agent.current_belief_distribution.shape[-1] - 1)  # Normalize to [0,1]
+                            agent_beliefs[agent_id] = torch.sum(agent.current_belief_distribution * belief_weights, dim=-1).item()
+                else:
+                    # Fallback if action_mean not stored
+                    policy_means.append(0.5)  # Default middle value
+                    policy_stds.append(0.1)  # Default small std
+                    agent_beliefs[agent_id] = 0.5  # Default middle belief
+        
         # Take environment step
         next_observations, rewards, done, info = env.step(actions, action_probs)
+        
+        # Add policy distribution parameters to info
+        if hasattr(args, 'continuous_actions') and args.continuous_actions:
+            info['policy_means'] = policy_means
+            info['policy_stds'] = policy_stds
+            info['agent_beliefs'] = agent_beliefs
+            info['env_params'] = env_params
         
         # Update rewards if training
         if training and rewards:
@@ -211,8 +262,19 @@ def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, train
         # Update observations for next step
         observations = next_observations
         
+        # For continuous actions in Strategic Experimentation env, add allocations to info
+        if hasattr(args, 'continuous_actions') and args.continuous_actions and hasattr(env, 'safe_payoff'):
+            # Add allocations to info for metrics tracking
+            if 'allocations' not in info:
+                info['allocations'] = actions
+        
         # Store and process metrics
-        update_metrics(metrics, info, env, actions, action_probs, step, training)
+        update_metrics(
+            metrics, 
+            info, 
+            actions, 
+            action_probs
+        )
         
         # Update progress display
         update_progress_display(steps_iterator, info, total_rewards, step, training)
@@ -265,31 +327,60 @@ def update_agent_states(agents, observations, next_observations, actions, reward
                         replay_buffers, metrics, env, args, training, step):
     """Update agent states and store transitions in replay buffer."""
     
+    # Check if we're using continuous actions
+    continuous_actions = hasattr(args, 'continuous_actions') and args.continuous_actions
+    
     for agent_id, agent in agents.items():
         # Get current and next observations
         obs_data = observations[agent_id]
         next_obs_data = next_observations[agent_id]
         
-        # Extract signals from observations
-        signal = obs_data['signal']
-        next_signal = next_obs_data['signal']
-        
-        # Get neighbor actions from the observation
-        neighbor_actions = obs_data['neighbor_actions']
-        next_neighbor_actions = next_obs_data['neighbor_actions']
+        # Extract signals and neighbor actions based on environment type
+        if 'signal' in obs_data:
+            # Social Learning Environment format
+            signal = obs_data['signal']
+            next_signal = next_obs_data['signal']
+            neighbor_actions = obs_data['neighbor_actions']
+            next_neighbor_actions = next_obs_data['neighbor_actions']
+        elif 'background_signal' in obs_data:
+            # Strategic Experimentation Environment format
+            # Use background signal as the observation signal
+            signal = int(obs_data['background_signal'] > 0)  # Convert to binary signal: 1 if positive, 0 if negative
+            next_signal = int(next_obs_data['background_signal'] > 0)
+            # Get allocations instead of discrete actions
+            neighbor_allocations = obs_data.get('neighbor_allocations', {})
+            next_neighbor_allocations = next_obs_data.get('neighbor_allocations', {})
+            # Handle None values by using empty dictionaries instead
+            if continuous_actions:
+                # Use raw allocation values
+                neighbor_actions = {} if neighbor_allocations is None else neighbor_allocations
+                next_neighbor_actions = {} if next_neighbor_allocations is None else next_neighbor_allocations
+            else:
+                # Convert to binary actions
+                neighbor_actions = {} if neighbor_allocations is None else {k: int(v > 0.5) for k, v in neighbor_allocations.items()}
+                next_neighbor_actions = {} if next_neighbor_allocations is None else {k: int(v > 0.5) for k, v in next_neighbor_allocations.items()}
+        else:
+            # Fallback for unknown environment type
+            signal = 0
+            next_signal = 0
+            neighbor_actions = {}
+            next_neighbor_actions = {}
+            print(f"Warning: Unknown observation format in {type(env).__name__}")
 
         # Encode observations
         signal_encoded, actions_encoded = encode_observation(
             signal=signal,
             neighbor_actions=neighbor_actions,
             num_agents=env.num_agents,
-            num_states=env.num_states
+            num_states=env.num_states,
+            continuous_actions=continuous_actions
         )
         next_signal_encoded, _ = encode_observation(
             signal=next_signal,
             neighbor_actions=next_neighbor_actions,
             num_agents=env.num_agents,
-            num_states=env.num_states
+            num_states=env.num_states,
+            continuous_actions=continuous_actions
         )
 
         # Get current belief and latent states (before observation update)
@@ -303,7 +394,7 @@ def update_agent_states(agents, observations, next_observations, actions, reward
         next_latent = agent.infer_latent(
             signal_encoded,
             actions_encoded,
-            rewards[agent_id] if rewards else 0.0,
+            rewards[agent_id] if isinstance(rewards[agent_id], float) else rewards[agent_id]['total'],
             next_signal_encoded
         )
             
@@ -329,6 +420,9 @@ def update_agent_states(agents, observations, next_observations, actions, reward
             # Get mean and logvar from inference
             mean, logvar = agent.get_latent_distribution_params()
             
+            # Get reward value (handle both scalar and dictionary cases)
+            reward_value = rewards[agent_id]['total'] if isinstance(rewards[agent_id], dict) else rewards[agent_id]
+            
             # Store transition
             store_transition_in_buffer(
                 replay_buffers[agent_id],
@@ -337,7 +431,7 @@ def update_agent_states(agents, observations, next_observations, actions, reward
                 belief,
                 latent,
                 actions[agent_id],
-                rewards[agent_id] if rewards else 0.0,
+                reward_value,
                 next_signal_encoded,
                 next_belief,
                 next_latent,
@@ -354,7 +448,7 @@ def update_agent_states(agents, observations, next_observations, actions, reward
 
 def initialize_agents(env, args, obs_dim):
     """Initialize POLARIS agents."""
-    print(f"Initializing {env.num_agents} agents{'...' if args.eval_only else ' for evaluation...'}")
+    print(f"Initializing {env.num_agents} agents{' for evaluation' if args.eval_only else ''}...")
     
     # Log if using GNN
     if args.use_gnn:
@@ -365,16 +459,28 @@ def initialize_agents(env, args, obs_dim):
     # Log if excluding final layers from SI
     if hasattr(args, 'si_exclude_final_layers') and args.si_exclude_final_layers and hasattr(args, 'use_si') and args.use_si:
         print("Excluding final layers from Synaptic Intelligence protection")
+    
+    # Log if using continuous actions
+    if hasattr(args, 'continuous_actions') and args.continuous_actions:
+        print("Using continuous action space for strategic experimentation")
         
     agents = {}
     
     for agent_id in range(env.num_agents):
+        # Determine action dimension based on environment and action space type
+        if hasattr(args, 'continuous_actions') and args.continuous_actions:
+            # For continuous actions, we use 1 dimension (allocation between 0 and 1)
+            action_dim = 1  
+        else:
+            # For discrete actions, we use num_states dimensions
+            action_dim = env.num_states
+            
         agent = POLARISAgent(
             agent_id=agent_id,
             num_agents=env.num_agents,
             num_states=env.num_states,
             observation_dim=obs_dim,
-            action_dim=env.num_states,
+            action_dim=action_dim,
             hidden_dim=args.hidden_dim,
             belief_dim=args.belief_dim,
             latent_dim=args.latent_dim,
@@ -389,14 +495,15 @@ def initialize_agents(env, args, obs_dim):
             use_si=args.use_si if hasattr(args, 'use_si') else False,
             si_importance=args.si_importance if hasattr(args, 'si_importance') else 100.0,
             si_damping=args.si_damping if hasattr(args, 'si_damping') else 0.1,
-            si_exclude_final_layers=args.si_exclude_final_layers if hasattr(args, 'si_exclude_final_layers') else False
+            si_exclude_final_layers=args.si_exclude_final_layers if hasattr(args, 'si_exclude_final_layers') else False,
+            continuous_actions=args.continuous_actions if hasattr(args, 'continuous_actions') else False
         )
         
         # If using GNN, update the inference module with the specified parameters
         if args.use_gnn and hasattr(agent, 'inference_module'):
             agent.inference_module = TemporalGNN(
                 hidden_dim=args.hidden_dim,
-                action_dim=env.num_states,
+                action_dim=action_dim,
                 latent_dim=args.latent_dim,
                 num_agents=env.num_agents,
                 device=args.device,
@@ -414,7 +521,7 @@ def initialize_agents(env, args, obs_dim):
             )
             
         agents[agent_id] = agent
-    
+            
     return agents
 
 def initialize_replay_buffers(agents, args, obs_dim):

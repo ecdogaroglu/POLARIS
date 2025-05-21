@@ -8,11 +8,13 @@ import numpy as np
 import json
 from pathlib import Path
 
+
 def encode_observation(
     signal: int,
     neighbor_actions: Dict[int, int],
     num_agents: int,
-    num_states: int
+    num_states: int,
+    continuous_actions: bool = False
 ) -> np.ndarray:
     """
     Encode the observation (signal + neighbor actions) into a fixed-size vector.
@@ -22,6 +24,7 @@ def encode_observation(
         neighbor_actions: Dictionary of neighbor IDs to their actions
         num_agents: Total number of agents in the environment
         num_states: Number of possible states
+        continuous_actions: If True, encode actions as continuous values
         
     Returns:
         encoded_obs: Encoded observation as a fixed-size vector
@@ -29,18 +32,39 @@ def encode_observation(
     # One-hot encode the signal
     signal_one_hot = torch.zeros(num_states)
     signal_one_hot[signal] = 1.0
-    # Encode neighbor actions (one-hot per neighbor)
-    action_encoding = torch.zeros(num_agents * num_states)
     
-    if neighbor_actions is not None:  # First step has no neighbor actions
-        for neighbor_id, action in neighbor_actions.items():
-            # Calculate the starting index for this neighbor's action encoding
-            start_idx = neighbor_id * num_states
-            # One-hot encode the action
-            action_encoding[start_idx + action] = 1.0
-
+    # Encode neighbor actions
+    if continuous_actions:
+        # For continuous actions, create a vector with raw allocation values
+        action_encoding = torch.zeros(num_agents)
+        
+        if neighbor_actions is not None:
+            for neighbor_id, allocation in neighbor_actions.items():
+                if isinstance(neighbor_id, int) and 0 <= neighbor_id < num_agents:
+                    # Convert to float if needed
+                    if isinstance(allocation, (int, float)):
+                        action_encoding[neighbor_id] = float(allocation)
+                    elif isinstance(allocation, torch.Tensor):
+                        action_encoding[neighbor_id] = allocation.item()
+    else:
+        # For discrete actions, use one-hot encoding
+        action_encoding = torch.zeros(num_agents * num_states)
+        
+        if neighbor_actions is not None:
+            for neighbor_id, action in neighbor_actions.items():
+                if isinstance(neighbor_id, int) and 0 <= neighbor_id < num_agents:
+                    # Calculate the starting index for this neighbor's action encoding
+                    start_idx = neighbor_id * num_states
+                    # One-hot encode the action
+                    if isinstance(action, int) and 0 <= action < num_states:
+                        action_encoding[start_idx + action] = 1.0
+                    elif isinstance(action, torch.Tensor) and action.dim() == 0:
+                        action_idx = action.item()
+                        if 0 <= action_idx < num_states:
+                            action_encoding[start_idx + action_idx] = 1.0
 
     return signal_one_hot, action_encoding
+
 
 def calculate_learning_rate(mistake_history: List[float]) -> float:
     """
@@ -73,6 +97,7 @@ def calculate_learning_rate(mistake_history: List[float]) -> float:
     learning_rate = -minus_r
     
     return learning_rate
+
 
 def calculate_agent_learning_rates(
     incorrect_probs: Dict[int, List[List[float]]], 
@@ -109,6 +134,7 @@ def calculate_agent_learning_rates(
         
     return learning_rates
 
+
 def get_best_device():
     """Get the best available device (CUDA, MPS, or CPU).
     
@@ -140,6 +166,7 @@ def get_best_device():
             return 'cpu'
     else:
         return 'cpu'
+
 
 def is_mps_faster_than_cpu(test_size=256, repeat=10):
     """Run a benchmark to check if MPS is faster than CPU for neural network operations.
@@ -275,35 +302,88 @@ def load_agent_models(agents, model_path, num_agents, training=True):
 
 
 def calculate_theoretical_bounds(env):
-    """Calculate theoretical performance bounds."""
-    return {
-        'autarky_rate': env.get_autarky_rate(),
-        'bound_rate': env.get_bound_rate(),
-        'coordination_rate': env.get_coordination_rate()
-    }
+    """Calculate theoretical performance bounds based on environment type."""
+    # Check environment type
+    if hasattr(env, 'get_autarky_rate'):
+        # Social Learning Environment
+        return {
+            'autarky_rate': env.get_autarky_rate(),
+            'bound_rate': env.get_bound_rate(),
+            'coordination_rate': env.get_coordination_rate()
+        }
+    elif hasattr(env, 'get_theoretical_mpe'):
+        # Strategic Experimentation Environment
+        # Calculate MPE based on 0.5 beliefs (neutral prior)
+        neutral_beliefs = [0.5] * env.num_agents
+        mpe_allocations = env.get_theoretical_mpe(neutral_beliefs)
+        
+        # For good state (state 1), optimal allocation is usually higher
+        good_beliefs = [0.8] * env.num_agents
+        good_allocations = env.get_theoretical_mpe(good_beliefs)
+        
+        # For bad state (state 0), optimal allocation is usually lower
+        bad_beliefs = [0.2] * env.num_agents
+        bad_allocations = env.get_theoretical_mpe(bad_beliefs)
+        
+        return {
+            'mpe_neutral': np.mean(mpe_allocations),
+            'mpe_good_state': np.mean(good_allocations),
+            'mpe_bad_state': np.mean(bad_allocations)
+        }
+    else:
+        # Default empty bounds for unknown environment types
+        print("Warning: Unknown environment type, cannot calculate theoretical bounds.")
+        return {}
 
 
 def display_theoretical_bounds(bounds):
     """Display theoretical bounds information."""
     print(f"Theoretical bounds:")
-    print(f"  Autarky rate: {bounds['autarky_rate']:.4f}")
-    print(f"  Coordination rate: {bounds['coordination_rate']:.4f}")
-    print(f"  Upper bound rate: {bounds['bound_rate']:.4f}")
+    
+    if 'autarky_rate' in bounds:
+        # Display for Social Learning Environment
+        print(f"  Autarky rate: {bounds['autarky_rate']:.4f}")
+        print(f"  Coordination rate: {bounds['coordination_rate']:.4f}")
+        print(f"  Upper bound rate: {bounds['bound_rate']:.4f}")
+    elif 'mpe_neutral' in bounds:
+        # Display for Strategic Experimentation Environment
+        print(f"  MPE allocation (neutral belief): {bounds['mpe_neutral']:.4f}")
+        print(f"  MPE allocation (good state): {bounds['mpe_good_state']:.4f}")
+        print(f"  MPE allocation (bad state): {bounds['mpe_bad_state']:.4f}")
+    else:
+        print("  No theoretical bounds available for this environment type.")
 
 
 def write_config_file(args, env, bounds, output_dir):
     """Write configuration to a JSON file."""
+    # Create base environment config
+    env_config = {
+        'num_agents': env.num_agents,
+        'num_states': env.num_states,
+        'network_type': args.network_type,
+        'network_density': args.network_density if args.network_type == 'random' else None
+    }
+    
+    # Add environment-specific attributes
+    if hasattr(env, 'signal_accuracy'):
+        # Social Learning Environment
+        env_config['signal_accuracy'] = env.signal_accuracy
+    elif hasattr(env, 'safe_payoff'):
+        # Strategic Experimentation Environment
+        env_config['safe_payoff'] = env.safe_payoff
+        env_config['drift_rates'] = env.drift_rates
+        env_config['jump_rates'] = env.jump_rates
+        env_config['jump_sizes'] = env.jump_sizes
+        env_config['background_informativeness'] = env.background_informativeness
+        env_config['diffusion_sigma'] = env.diffusion_sigma
+        env_config['time_step'] = env.time_step
+    
+    # Write config to file
     with open(output_dir / 'config.json', 'w') as f:
         config = {
             'args': vars(args),
             'theoretical_bounds': bounds,
-            'environment': {
-                'num_agents': env.num_agents,
-                'num_states': env.num_states,
-                'signal_accuracy': env.signal_accuracy,
-                'network_type': args.network_type,
-                'network_density': args.network_density if args.network_type == 'random' else None
-            }
+            'environment': env_config
         }
         json.dump(config, f, indent=2)
 
@@ -317,15 +397,18 @@ def reset_agent_internal_states(agents):
 # Global metrics dictionary for tracking
 _metrics = None
 
+
 def get_metrics():
     """Get the global metrics dictionary."""
     global _metrics
     return _metrics
 
+
 def set_metrics(metrics):
     """Set the global metrics dictionary."""
     global _metrics
     _metrics = metrics
+
 
 def select_agent_actions(agents, metrics):
     """Select actions for all agents and return with probabilities."""
@@ -354,8 +437,13 @@ def select_agent_actions(agents, metrics):
 def update_total_rewards(total_rewards, rewards):
     """Update total rewards for each agent."""
     for agent_id, reward in rewards.items():
-        total_rewards[agent_id] += reward
-
+        if isinstance(reward, dict):
+            # If reward is a dictionary (strategic experimentation environment),
+            # use the 'total' field 
+            total_rewards[agent_id] += reward['total']
+        else:
+            # Standard case - reward is a scalar
+            total_rewards[agent_id] += reward
 
 
 def store_transition_in_buffer(buffer, signal, neighbor_actions, belief, latent, action, reward, next_signal, 

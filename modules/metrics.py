@@ -4,8 +4,44 @@ Metrics collection and processing for POLARIS experiments.
 
 import json
 import numpy as np
+import torch
 from pathlib import Path
 from modules.utils import calculate_learning_rate
+
+
+def calculate_policy_kl_divergence(policy_mean, policy_std, mpe_allocation):
+    """
+    Calculate KL divergence between the agent's policy distribution and the MPE allocation.
+    
+    For continuous actions, we treat the MPE allocation as a Dirac delta (deterministic policy)
+    and the agent's policy as a truncated Gaussian distribution.
+    
+    Args:
+        policy_mean: Mean of the agent's policy distribution
+        policy_std: Standard deviation of the agent's policy distribution
+        mpe_allocation: Theoretical MPE allocation (deterministic)
+        
+    Returns:
+        kl_divergence: KL divergence between distributions
+    """
+    # Convert inputs to tensors if they aren't already
+    if not isinstance(policy_mean, torch.Tensor):
+        policy_mean = torch.tensor(policy_mean)
+    if not isinstance(policy_std, torch.Tensor):
+        policy_std = torch.tensor(policy_std)
+    if not isinstance(mpe_allocation, torch.Tensor):
+        mpe_allocation = torch.tensor(mpe_allocation)
+    
+    # For continuous action space with truncated Gaussian policy and deterministic target,
+    # the KL divergence can be approximated as:
+    # KL(p||δ) = -log(pdf(δ|μ,σ)) where pdf is the probability density function
+    
+    # Calculate the negative log probability of the MPE allocation under the policy distribution
+    z_score = (mpe_allocation - policy_mean) / policy_std
+    log_pdf = -0.5 * (z_score ** 2) - torch.log(policy_std) - 0.5 * torch.log(torch.tensor(2 * np.pi))
+    kl_divergence = -log_pdf
+    
+    return kl_divergence.item()
 
 
 def initialize_metrics(env, args, training):
@@ -16,7 +52,8 @@ def initialize_metrics(env, args, training):
         'action_probs': {agent_id: [] for agent_id in range(env.num_agents)},
         'full_action_probs': {agent_id: [] for agent_id in range(env.num_agents)},
         'true_states': [],
-        'agent_actions': {agent_id: [] for agent_id in range(env.num_agents)}  # Track actions taken by each agent
+        'agent_actions': {agent_id: [] for agent_id in range(env.num_agents)},
+        'allocations': {agent_id: [] for agent_id in range(env.num_agents)}
     }
     
     # Add training-specific or evaluation-specific metrics
@@ -37,40 +74,204 @@ def initialize_metrics(env, args, training):
         metrics['belief_distributions'] = {agent_id: [] for agent_id in range(env.num_agents)}
         metrics['opponent_belief_distributions'] = {agent_id: [] for agent_id in range(env.num_agents)}
     
+    # Add strategic experimentation specific metrics if applicable
+    if hasattr(env, 'safe_payoff'):
+        # Add theoretical bounds
+        metrics['theoretical_bounds'] = {
+            'mpe_neutral': env.get_theoretical_mpe(env.num_agents * [0.5])[0],
+            'mpe_good_state': env.get_theoretical_mpe(env.num_agents * [0.8])[0],
+            'mpe_bad_state': env.get_theoretical_mpe(env.num_agents * [0.2])[0]
+        }
+        
+        # Add allocation tracking for continuous actions
+        if hasattr(args, 'continuous_actions') and args.continuous_actions:
+            metrics['allocations'] = {agent_id: [] for agent_id in range(env.num_agents)}
+            
+            # Add KL divergence tracking for policy convergence
+            metrics['policy_kl_divergence'] = {agent_id: [] for agent_id in range(env.num_agents)}
+            metrics['policy_means'] = {agent_id: [] for agent_id in range(env.num_agents)}
+            metrics['policy_stds'] = {agent_id: [] for agent_id in range(env.num_agents)}
+    
     print(f"Initialized metrics dictionary with {len(metrics['action_probs'])} agent entries")
     return metrics
 
 
-def update_metrics(metrics, info, env, actions, action_probs, step, training):
-    """Update metrics with current step information."""
-    # Store mistake rate
-    metrics['mistake_rates'].append(info['mistake_rate'])
+def update_metrics(metrics, info, actions, action_probs=None, beliefs=None, latent_states=None, opponent_beliefs=None):
+    """Update metrics dictionary with the current step information."""
+    # Update true state history
+    if 'true_state' in info:
+        metrics['true_states'].append(info['true_state'])
     
-    # Debug info about incorrect_prob on first step
-    if step == 0:
-        print(f"First step incorrect_prob value: {np.array2string(np.array(info['incorrect_prob']), precision=2)}")
+    # Update mistake rates and incorrect probabilities
+    if 'mistake_rate' in info:
+        metrics['mistake_rates'].append(info['mistake_rate'])
+    if 'incorrect_prob' in info:
+        metrics['incorrect_probs'].append(info['incorrect_prob'])
     
-    # Store incorrect probabilities
-    store_incorrect_probabilities(metrics, info, env.num_agents)
-    
-    # Store full action probability distributions
-    for agent_id, probs in action_probs.items():
-        if 'full_action_probs' in metrics:
+    # Update action probabilities
+    if action_probs is not None:
+        for agent_id, probs in action_probs.items():
             metrics['full_action_probs'][agent_id].append(probs)
     
-    # Store true state
-    metrics['true_states'].append(env.true_state)
-    
-    # Store agent actions
+    # Update action history
     for agent_id, action in actions.items():
-        if 'agent_actions' in metrics and agent_id in metrics['agent_actions']:
-            metrics['agent_actions'][agent_id].append(action)
+        metrics['agent_actions'][agent_id].append(action)
     
-    # Update correct action counts for evaluation
-    if not training and 'correct_actions' in metrics:
-        for agent_id, action in actions.items():
-            if action == env.true_state:
-                metrics['correct_actions'][agent_id] += 1
+    # Update allocations for strategic experimentation if available
+    if 'allocations' in info and 'allocations' in metrics:
+        # Handle different types of allocations data
+        allocations = info['allocations']
+        if isinstance(allocations, dict):
+            # Dictionary format
+            for agent_id, allocation in allocations.items():
+                if agent_id in metrics['allocations']:
+                    metrics['allocations'][agent_id].append(allocation)
+        elif isinstance(allocations, (list, np.ndarray)):
+            # List or array format
+            for agent_id in range(len(allocations)):
+                if agent_id in metrics['allocations']:
+                    metrics['allocations'][agent_id].append(allocations[agent_id])
+        else:
+            print(f"Warning: Unsupported allocations format: {type(allocations)}")
+    
+    # Update policy means and stds if available
+    if 'policy_means' in info and 'policy_means' in metrics:
+        policy_means = info['policy_means']
+        for agent_id, mean in enumerate(policy_means):
+            if agent_id in metrics['policy_means']:
+                metrics['policy_means'][agent_id].append(mean)
+    
+    if 'policy_stds' in info and 'policy_stds' in metrics:
+        policy_stds = info['policy_stds']
+        for agent_id, std in enumerate(policy_stds):
+            if agent_id in metrics['policy_stds']:
+                metrics['policy_stds'][agent_id].append(std)
+    
+    # Update KL divergence based on dynamic MPE allocation
+    if 'policy_means' in metrics and 'policy_stds' in metrics:
+        # Get policy parameters if available
+        if 'policy_means' in info and 'policy_stds' in info:
+            for agent_id in metrics['policy_kl_divergence']:
+                if agent_id < len(info['policy_means']) and agent_id < len(info['policy_stds']):
+                    # Determine current belief for this agent
+                    agent_belief = 0.5  # Default: neutral belief
+                    
+                    # Try to get agent beliefs from info
+                    if 'agent_beliefs' in info and agent_id in info['agent_beliefs']:
+                        agent_belief = info['agent_beliefs'][agent_id]
+                    # If not available, try to infer from belief state or distribution
+                    elif beliefs is not None and agent_id in beliefs:
+                        # Check if we have belief distributions
+                        if isinstance(beliefs[agent_id], torch.Tensor) and beliefs[agent_id].dim() > 1:
+                            if beliefs[agent_id].shape[-1] == 2:  # Binary state case
+                                agent_belief = beliefs[agent_id][0, 1].item()  # Probability of state 1
+                    
+                    # Get environment parameters from info if available
+                    env_params = info.get('env_params', {})
+                    safe_payoff = env_params.get('safe_payoff', 1.0)
+                    
+                    # If no drift rates provided, use defaults
+                    drift_rates = env_params.get('drift_rates', [-0.5, 0.5])
+                    jump_rates = env_params.get('jump_rates', [0.1, 0.2])
+                    jump_sizes = env_params.get('jump_sizes', [1.0, 1.0])
+                    background_informativeness = env_params.get('background_informativeness', 0.1)
+                    num_agents = env_params.get('num_agents', 2)
+                    
+                    # Calculate dynamic MPE based on current belief
+                    mpe_allocation = calculate_dynamic_mpe(
+                        agent_belief, 
+                        safe_payoff,
+                        drift_rates,
+                        jump_rates,
+                        jump_sizes,
+                        background_informativeness,
+                        num_agents
+                    )
+                    
+                    # Calculate KL divergence between agent's policy and MPE
+                    kl = calculate_policy_kl_divergence(
+                        info['policy_means'][agent_id], 
+                        info['policy_stds'][agent_id],
+                        mpe_allocation
+                    )
+                    metrics['policy_kl_divergence'][agent_id].append(kl)
+                
+    # Update belief states if requested and available
+    if beliefs is not None and 'belief_states' in metrics:
+        for agent_id, belief in beliefs.items():
+            metrics['belief_states'][agent_id].append(belief)
+            
+    # Update latent states if requested and available
+    if latent_states is not None and 'latent_states' in metrics:
+        for agent_id, latent in latent_states.items():
+            metrics['latent_states'][agent_id].append(latent)
+            
+    # Update opponent beliefs if requested and available
+    if opponent_beliefs is not None and 'opponent_belief_distributions' in metrics:
+        for agent_id, opponent_belief in opponent_beliefs.items():
+            metrics['opponent_belief_distributions'][agent_id].append(opponent_belief)
+    
+    return metrics
+
+
+def calculate_dynamic_mpe(belief, safe_payoff=1.0, drift_rates=[-0.5, 0.5], 
+                         jump_rates=[0.1, 0.2], jump_sizes=[1.0, 1.0],
+                         background_informativeness=0.1, num_agents=2):
+    """
+    Calculate the Markov perfect equilibrium allocation dynamically based on current belief.
+    
+    This follows the Keller and Rady (2020) model with symmetric MPE.
+    
+    Args:
+        belief: Agent's belief probability of being in the good state (state 1)
+        safe_payoff: Deterministic payoff of the safe arm
+        drift_rates: Drift rates for bad and good states
+        jump_rates: Poisson jump rates for bad and good states
+        jump_sizes: Jump sizes for bad and good states
+        background_informativeness: Informativeness of background signals
+        num_agents: Number of agents in the game
+        
+    Returns:
+        mpe_allocation: The MPE allocation for the given belief
+    """
+    # Compute expected risky payoff based on current belief
+    expected_risky_payoff = (
+        belief * (drift_rates[1] + jump_rates[1] * jump_sizes[1]) +
+        (1 - belief) * (drift_rates[0] + jump_rates[0] * jump_sizes[0])
+    )
+    
+    # Expected myopic payoff from the risky arm
+    myopic_payoff = expected_risky_payoff
+    
+    # Full information payoff (value when state is known to be good)
+    full_info_payoff = max(safe_payoff, drift_rates[1] + jump_rates[1] * jump_sizes[1])
+    
+    # If expected risky payoff is better than safe, allocate everything to risky
+    if myopic_payoff > safe_payoff:
+        return 1.0
+    # If expected risky payoff is worse, but potentially good state exists
+    elif myopic_payoff < safe_payoff:
+        # Calculate incentive to experiment
+        if drift_rates[1] + jump_rates[1] * jump_sizes[1] > safe_payoff:
+            # Incentive defined in the Keller and Rady paper
+            incentive = (full_info_payoff - safe_payoff) / (safe_payoff - myopic_payoff)
+            
+            # Adjust for number of players and background signal
+            k0 = background_informativeness
+            n = num_agents
+            
+            if incentive <= k0:
+                return 0.0  # No experimentation
+            elif k0 < incentive < k0 + n - 1:
+                # Partial experimentation
+                return (incentive - k0) / (n - 1)
+            else:
+                return 1.0  # Full experimentation
+        else:
+            return 0.0  # Risky arm never better than safe
+    else:
+        # Indifferent, allocate randomly
+        return 0.5
 
 
 def store_incorrect_probabilities(metrics, info, num_agents):
@@ -105,26 +306,6 @@ def calculate_agent_learning_rates_from_metrics(metrics):
             learning_rates[agent_id] = 0.0
     return learning_rates
 
-
-def display_learning_rate_summary(learning_rates, bound_rate):
-    """Display a summary of agent learning rates."""
-    fastest_agent = max(learning_rates.items(), key=lambda x: x[1])
-    slowest_agent = min(learning_rates.items(), key=lambda x: x[1])
-    avg_learning_rate = np.mean(list(learning_rates.values()))
-    
-    print("\nLearning Rate Summary:")
-    print(f"  Average Rate: {avg_learning_rate:.4f}")
-    print(f"  Fastest Agent: {fastest_agent[0]} (Rate: {fastest_agent[1]:.4f})")
-    print(f"  Slowest Agent: {slowest_agent[0]} (Rate: {slowest_agent[1]:.4f})")
-    print(f"  Bound Rate: {bound_rate:.4f}")
-    
-    return {
-        'fastest_agent': fastest_agent,
-        'slowest_agent': slowest_agent,
-        'avg_learning_rate': avg_learning_rate
-    }
-
-
 def prepare_serializable_metrics(metrics, learning_rates, theoretical_bounds, num_steps, training):
     """Prepare metrics for JSON serialization."""
     # Find fastest and slowest learning agents
@@ -142,7 +323,7 @@ def prepare_serializable_metrics(metrics, learning_rates, theoretical_bounds, nu
         'full_action_probs': {str(agent_id): [[float(p) for p in dist] for dist in probs] 
                               for agent_id, probs in metrics['full_action_probs'].items()},
         'true_states': metrics['true_states'],
-        'agent_actions': {str(agent_id): [int(a) for a in actions] 
+        'agent_actions': {str(agent_id): [int(a) if isinstance(a, (int, np.integer)) else float(a) for a in actions] 
                          for agent_id, actions in metrics['agent_actions'].items()},
         'learning_rates': {str(k): float(v) for k, v in learning_rates.items()},
         
@@ -159,12 +340,66 @@ def prepare_serializable_metrics(metrics, learning_rates, theoretical_bounds, nu
             'rate': float(slowest_agent[1])
         },
         'avg_learning_rate': float(avg_learning_rate),
-        'theoretical_bounds': {
+    }
+    
+    # Add KL divergence data if available
+    if 'policy_kl_divergence' in metrics:
+        serializable_metrics['policy_kl_divergence'] = {
+            str(agent_id): [float(kl) for kl in kl_values] 
+            for agent_id, kl_values in metrics['policy_kl_divergence'].items()
+        }
+        
+        # Calculate average KL divergence per agent (over last 20% of steps)
+        final_kl_divergences = {}
+        for agent_id, kl_values in metrics['policy_kl_divergence'].items():
+            if len(kl_values) > 0:
+                # Use the last 20% of values to calculate the average
+                last_idx = max(1, int(len(kl_values) * 0.2))
+                final_kl = np.mean(kl_values[-last_idx:])
+                final_kl_divergences[str(agent_id)] = float(final_kl)
+        
+        if final_kl_divergences:
+            serializable_metrics['final_kl_divergence'] = final_kl_divergences
+            serializable_metrics['avg_final_kl_divergence'] = float(np.mean(list(final_kl_divergences.values())))
+    
+    # Add allocations if they exist (for Strategic Experimentation)
+    if 'allocations' in metrics:
+        serializable_metrics['allocations'] = {
+            str(agent_id): [float(a) for a in allocs] 
+            for agent_id, allocs in metrics['allocations'].items()
+        }
+        
+        # Calculate average allocation per agent (over last 20% of steps)
+        final_allocations = {}
+        for agent_id, allocs in metrics['allocations'].items():
+            if len(allocs) > 0:
+                # Use the last 20% of values to calculate the average
+                last_idx = max(1, int(len(allocs) * 0.2))
+                final_alloc = np.mean(allocs[-last_idx:])
+                final_allocations[str(agent_id)] = float(final_alloc)
+        
+        if final_allocations:
+            serializable_metrics['final_allocations'] = final_allocations
+            serializable_metrics['avg_final_allocation'] = float(np.mean(list(final_allocations.values())))
+    
+    # Add theoretical bounds based on environment type
+    if 'autarky_rate' in theoretical_bounds:
+        # Social Learning Environment
+        serializable_metrics['theoretical_bounds'] = {
             'autarky_rate': float(theoretical_bounds['autarky_rate']),
             'coordination_rate': float(theoretical_bounds['coordination_rate']),
             'bound_rate': float(theoretical_bounds['bound_rate'])
         }
-    }
+    elif 'mpe_neutral' in theoretical_bounds:
+        # Strategic Experimentation Environment
+        serializable_metrics['theoretical_bounds'] = {
+            'mpe_neutral': float(theoretical_bounds['mpe_neutral']),
+            'mpe_good_state': float(theoretical_bounds['mpe_good_state']),
+            'mpe_bad_state': float(theoretical_bounds['mpe_bad_state'])
+        }
+    else:
+        # Default empty bounds
+        serializable_metrics['theoretical_bounds'] = {}
     
     return serializable_metrics
 

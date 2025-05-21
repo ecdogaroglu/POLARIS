@@ -2,8 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import math
 
-from modules.networks import EncoderNetwork, DecoderNetwork, PolicyNetwork, QNetwork, TransformerBeliefProcessor, TemporalGNN
+from modules.networks import EncoderNetwork, DecoderNetwork, PolicyNetwork, ContinuousPolicyNetwork, QNetwork, TransformerBeliefProcessor, TemporalGNN
 from modules.replay_buffer import ReplayBuffer
 from modules.utils import get_best_device, encode_observation
 from modules.si import SILoss, calculate_path_integral_from_replay_buffer
@@ -32,13 +33,13 @@ class POLARISAgent:
         use_si=False,
         si_importance=100.0,
         si_damping=0.1,
-        si_exclude_final_layers=False
+        si_exclude_final_layers=False,
+        continuous_actions=False
     ):
         
         # Use the best available device if none is specified
         if device is None:
             device = get_best_device()
-        print(f"Using device: {device}")
         self.agent_id = agent_id
         self.num_agents = num_agents
         self.num_states = num_states
@@ -52,12 +53,13 @@ class POLARISAgent:
         self.max_trajectory_length = max_trajectory_length
         self.latent_dim = latent_dim
         self.use_gnn = use_gnn
+        self.continuous_actions = continuous_actions
         
         # Global variables for action logits and neighbor action logits
         self.action_logits = None
         self.neighbor_action_logits = None
         
-        # Initialize replay buffer with our enhanced version
+        # Initialize replay buffer
         self.replay_buffer = ReplayBuffer(
             capacity=buffer_capacity,
             observation_dim=observation_dim,
@@ -67,20 +69,16 @@ class POLARISAgent:
             sequence_length=max_trajectory_length
         )
         
-        # Initialize all networks
+        # Create belief processor
         self.belief_processor = TransformerBeliefProcessor(
             hidden_dim=belief_dim,
             action_dim=action_dim,
             device=device,
-            num_belief_states=num_states,
-            nhead=4,  # Number of attention heads
-            num_layers=2,  # Number of transformer layers
-            dropout=0.1  # Dropout rate
+            num_belief_states=num_states
         ).to(device)
         
-        # Initialize either the GNN or the traditional encoder-decoder
-        if self.use_gnn:
-            # Use the new TemporalGNN for inference learning
+        # Create inference module (GNN or traditional encoder-decoder)
+        if use_gnn:
             self.inference_module = TemporalGNN(
                 hidden_dim=hidden_dim,
                 action_dim=action_dim,
@@ -88,10 +86,10 @@ class POLARISAgent:
                 num_agents=num_agents,
                 device=device,
                 num_belief_states=num_states,
-                num_gnn_layers=2,  # Default value, will be updated later if needed
-                num_attn_heads=4,  # Default value, will be updated later if needed
+                num_gnn_layers=2,
+                num_attn_heads=4,
                 dropout=0.1,
-                temporal_window_size=5  # Default value, will be updated later if needed
+                temporal_window_size=5
             ).to(device)
         else:
             # Use the traditional encoder-decoder approach
@@ -113,13 +111,25 @@ class POLARISAgent:
                 device=device
             ).to(device)
         
-        self.policy = PolicyNetwork(
-            belief_dim=belief_dim,
-            latent_dim=latent_dim,
-            action_dim=action_dim,
-            hidden_dim=hidden_dim,
-            device=device
-        ).to(device)
+        # Use appropriate policy network based on action space
+        if continuous_actions:
+            self.policy = ContinuousPolicyNetwork(
+                belief_dim=belief_dim,
+                latent_dim=latent_dim,
+                action_dim=1,  # For strategic experimentation, just one value between 0 and 1
+                hidden_dim=hidden_dim,
+                device=device,
+                min_action=0.0,
+                max_action=1.0
+            ).to(device)
+        else:
+            self.policy = PolicyNetwork(
+                belief_dim=belief_dim,
+                latent_dim=latent_dim,
+                action_dim=action_dim,
+                hidden_dim=hidden_dim,
+                device=device
+            ).to(device)
         
         self.q_network1 = QNetwork(
             belief_dim=belief_dim,
@@ -402,28 +412,37 @@ class POLARISAgent:
     
     def select_action(self):
         """Select action based on current belief and latent."""
+        if self.continuous_actions:
+            # For continuous actions (strategic experimentation)
+            action, log_prob, mean = self.policy.sample_action(self.current_belief, self.current_latent)
+            
+            # Convert to numpy and scalar (for 1D action space)
+            action_value = action.squeeze().detach().cpu().numpy()
+            
+            # Store the mean for tracking
+            self.action_mean = mean.detach()
+            
+            # Return the action value directly (allocation between 0 and 1)
+            return action_value.item(), np.array([action_value.item()])
+        else:
+            # For discrete actions (original approach)
+            # Calculate fresh action logits for action selection
+            action_logits = self.policy(self.current_belief, self.current_latent)
 
-        # Calculate fresh action logits for action selection
-        action_logits = self.policy(self.current_belief, self.current_latent)
+            # Store a detached copy for caching
+            self.action_logits = action_logits.detach()
 
-        # Store a detached copy for caching
-        self.action_logits = action_logits.detach()
+            # Convert to probabilities
+            action_probs = F.softmax(action_logits, dim=-1)
 
-        # Convert to probabilities
-        action_probs = F.softmax(action_logits, dim=-1)
-
-        # Store probability of incorrect action for learning rate calculation
-        self.action_probs_history.append(action_probs.squeeze(0).detach().cpu().numpy())
-        
-        # Sample action from distribution
-        dist = torch.distributions.Categorical(action_probs)
-        action = dist.sample().item()
-        
-        # Alternatively, use argmax for deterministic action selection
-        #action = action_probs.argmax(dim=-1).item()
-
-        
-        return action, action_probs.squeeze(0).detach().cpu().numpy()
+            # Store probability of incorrect action for learning rate calculation
+            self.action_probs_history.append(action_probs.squeeze(0).detach().cpu().numpy())
+            
+            # Sample action from distribution
+            dist = torch.distributions.Categorical(action_probs)
+            action = dist.sample().item()
+            
+            return action, action_probs.squeeze(0).detach().cpu().numpy()
     
     def train(self, batch_size=32, sequence_length=32):
         """Train the agent using sequential data from the replay buffer."""
@@ -597,36 +616,84 @@ class POLARISAgent:
     
     def _update_critics(self, signals, neighbor_actions, beliefs, latents, actions, next_neighbor_actions, rewards, next_signals, next_beliefs, next_latents):
         """Update Q-networks."""
-        # Get current Q-values
-        q1 = self.q_network1(beliefs, latents, neighbor_actions).gather(1, actions.unsqueeze(1))
-        q2 = self.q_network2(beliefs, latents, neighbor_actions).gather(1, actions.unsqueeze(1))
-        
-        # Compute next action probabilities
-        with torch.no_grad():
-            # Calculate fresh action logits for critic update
-            next_action_logits = self.policy(next_beliefs, next_latents)
-            next_action_probs = F.softmax(next_action_logits, dim=1)
-            next_log_probs = F.log_softmax(next_action_logits, dim=1)
-            entropy = -torch.sum(next_action_probs * next_log_probs, dim=1, keepdim=True)
+        if self.continuous_actions:
+            # For continuous actions, we need to handle the Q-networks differently
+            # Convert actions to the correct format for Q-network input
+            if isinstance(actions, torch.Tensor):
+                if actions.dim() == 1:
+                    continuous_actions = actions.unsqueeze(1).float()
+                else:
+                    continuous_actions = actions.float()
+            else:
+                continuous_actions = torch.tensor([[float(actions)]], device=self.device)
+                
+            # Get current Q-values
+            current_q1 = self.q_network1(beliefs, latents, neighbor_actions)
+            current_q2 = self.q_network2(beliefs, latents, neighbor_actions)
             
-            # Compute Q-values with predicted next neighbor actions
-            next_q1 = self.target_q_network1(next_beliefs, next_latents, next_neighbor_actions)
-            next_q2 = self.target_q_network2(next_beliefs, next_latents, next_neighbor_actions)
+            # For continuous case, we use the mean Q-value as our estimate
+            q1 = current_q1.mean(dim=1, keepdim=True)
+            q2 = current_q2.mean(dim=1, keepdim=True)
             
-            # Take minimum
-            next_q = torch.min(next_q1, next_q2)
+            # Compute next action distribution
+            with torch.no_grad():
+                # Get mean and log_std from the policy
+                next_mean, next_log_std = self.policy(next_beliefs, next_latents)
+                next_std = torch.exp(next_log_std)
+                
+                # Compute entropy (for normal distribution)
+                entropy = 0.5 + 0.5 * math.log(2 * math.pi) + next_log_std
+                
+                # Compute Q-values with target networks
+                next_q1 = self.target_q_network1(next_beliefs, next_latents, next_neighbor_actions)
+                next_q2 = self.target_q_network2(next_beliefs, next_latents, next_neighbor_actions)
+                
+                # Take minimum Q-value
+                next_q = torch.min(next_q1, next_q2)
+                
+                # For continuous case, use the mean Q-value
+                expected_q = next_q.mean(dim=1, keepdim=True)
+                
+                # Add entropy
+                expected_q = expected_q + self.entropy_weight * entropy.mean()
+                
+                # Compute target
+                if self.discount_factor > 0:  # Discounted return
+                    target_q = rewards + self.discount_factor * expected_q
+                else:  # Average reward
+                    target_q = rewards - self.gain_parameter + expected_q
+        else:
+            # Original discrete action implementation
+            # Get current Q-values
+            q1 = self.q_network1(beliefs, latents, neighbor_actions).gather(1, actions.unsqueeze(1))
+            q2 = self.q_network2(beliefs, latents, neighbor_actions).gather(1, actions.unsqueeze(1))
             
-            # Expected Q-value
-            expected_q = (next_action_probs * next_q).sum(dim=1, keepdim=True)
-            
-            # Add entropy
-            expected_q = expected_q + self.entropy_weight * entropy
-            
-            # Compute target
-            if self.discount_factor > 0:  # Discounted return
-                target_q = rewards + self.discount_factor * expected_q
-            else:  # Average reward
-                target_q = rewards - self.gain_parameter + expected_q
+            # Compute next action probabilities
+            with torch.no_grad():
+                # Calculate fresh action logits for critic update
+                next_action_logits = self.policy(next_beliefs, next_latents)
+                next_action_probs = F.softmax(next_action_logits, dim=1)
+                next_log_probs = F.log_softmax(next_action_logits, dim=1)
+                entropy = -torch.sum(next_action_probs * next_log_probs, dim=1, keepdim=True)
+                
+                # Compute Q-values with predicted next neighbor actions
+                next_q1 = self.target_q_network1(next_beliefs, next_latents, next_neighbor_actions)
+                next_q2 = self.target_q_network2(next_beliefs, next_latents, next_neighbor_actions)
+                
+                # Take minimum
+                next_q = torch.min(next_q1, next_q2)
+                
+                # Expected Q-value
+                expected_q = (next_action_probs * next_q).sum(dim=1, keepdim=True)
+                
+                # Add entropy
+                expected_q = expected_q + self.entropy_weight * entropy
+                
+                # Compute target
+                if self.discount_factor > 0:  # Discounted return
+                    target_q = rewards + self.discount_factor * expected_q
+                else:  # Average reward
+                    target_q = rewards - self.gain_parameter + expected_q
         
         # Compute loss
         q1_loss = F.mse_loss(q1, target_q)
@@ -656,42 +723,81 @@ class POLARISAgent:
         Returns:
             Tuple of (policy_loss_value, advantage)
         """
-        # Generate fresh action logits for the batch
-        action_logits = self.policy(beliefs, latents)
-        
-        # Calculate probabilities from the logits
-        action_probs = F.softmax(action_logits, dim=1)
-        log_probs = F.log_softmax(action_logits, dim=1)
-        
-        # Compute entropy
-        entropy = -torch.sum(action_probs * log_probs, dim=1, keepdim=True)
-        
-        # Get Q-values
-        with torch.no_grad():
+        if self.continuous_actions:
+            # For continuous actions, policy outputs mean and log_std
+            mean, log_std = self.policy(beliefs, latents)
+            
+            # Create normal distribution
+            std = torch.exp(log_std)
+            normal_dist = torch.distributions.Normal(mean, std)
+            
+            # For continuous case, actions are the allocation values
+            if isinstance(actions, torch.Tensor):
+                if actions.dim() == 1:
+                    # Reshape to [batch_size, 1] for proper handling
+                    continuous_actions = actions.unsqueeze(1).float()
+                else:
+                    continuous_actions = actions.float()
+            else:
+                # Handle scalar actions
+                continuous_actions = torch.tensor([[float(actions)]], device=self.device)
+            
+            # Calculate log probability of the actions
+            log_prob = normal_dist.log_prob(continuous_actions)
+            
+            # Calculate loss (negative log probability for maximization)
+            policy_loss = -log_prob.mean()
+            
+            # Add entropy term for exploration
+            entropy = 0.5 + 0.5 * math.log(2 * math.pi) + log_std
+            entropy_loss = -self.entropy_weight * entropy.mean()
+            
+            # Combined loss
+            policy_loss = policy_loss + entropy_loss
+            
+            # Calculate advantage for Transformer training
+            with torch.no_grad():
+                # Get Q-values for the actions
+                q1 = self.q_network1(beliefs, latents, neighbor_actions)
+                q2 = self.q_network2(beliefs, latents, neighbor_actions)
+                q = torch.min(q1, q2)
+                
+                # For continuous actions, we use the taken action's Q-value as advantage
+                advantage = q.mean()
+        else:
+            # Generate fresh action logits for the batch
+            action_logits = self.policy(beliefs, latents)
+            
+            # Calculate probabilities
+            action_probs = F.softmax(action_logits, dim=1)
+            log_probs = F.log_softmax(action_logits, dim=1)
+            
+            # Calculate entropy
+            entropy = -torch.sum(action_probs * log_probs, dim=1).mean()
+            
+            # Get the log probability of the taken actions
+            indices = actions.long().unsqueeze(1)
+            taken_log_probs = torch.gather(log_probs, 1, indices).squeeze(1)
+            
+            # Get Q-values for advantage
             q1 = self.q_network1(beliefs, latents, neighbor_actions)
             q2 = self.q_network2(beliefs, latents, neighbor_actions)
             q = torch.min(q1, q2)
-        
-        # Compute expected Q-value
-        expected_q = torch.sum(action_probs * q, dim=1, keepdim=True)
-        
-        # Policy loss is negative of expected Q-value plus entropy
-        policy_loss = -(expected_q + self.entropy_weight * entropy).mean()
-        
-        # Add SI loss if enabled
-        si_loss = 0.0
-        if self.use_si and self.path_integrals_calculated:
-            si_loss = self.policy_si.calculate_loss()
-            policy_loss += si_loss
-            if hasattr(self, 'si_debug_counter'):
-                self.si_debug_counter += 1
-                if self.si_debug_counter % 100 == 0:
-                    print(f"Agent {self.agent_id} Policy SI Loss: {si_loss.item():.6f}, Main Loss: {policy_loss.item():.6f}")
-        
-        # Calculate advantage for Transformer training
-        # Advantage is Q-value of taken action minus expected Q-value (baseline)
-        q_actions = q.gather(1, actions.unsqueeze(1))
-        advantage = q_actions - expected_q.detach()
+            
+            # Calculate expected values of the current policy
+            v = torch.sum(action_probs * q, dim=1)
+            
+            # Get the Q-values of the taken actions
+            q_taken = torch.gather(q, 1, indices).squeeze(1)
+            
+            # Calculate advantages A(s, a) = Q(s, a) - V(s)
+            advantage = q_taken - v
+            
+            # Policy gradient loss
+            policy_loss = -(taken_log_probs * advantage.detach()).mean()
+            
+            # Add entropy term for exploration
+            policy_loss = policy_loss - self.entropy_weight * entropy
         
         # Update policy
         self.policy_optimizer.zero_grad()
@@ -823,14 +929,33 @@ class POLARISAgent:
             
             # Try to transfer knowledge from GRU to Transformer
             self._transfer_gru_to_transformer_knowledge(checkpoint)
+        
+        # Check for architecture mismatch between GNN and encoder-decoder
+        use_gnn_in_checkpoint = checkpoint.get('use_gnn', False)
+        if use_gnn_in_checkpoint != self.use_gnn:
+            print(f"Warning: Architecture mismatch detected. Saved model uses {'GNN' if use_gnn_in_checkpoint else 'encoder-decoder'} "
+                  f"but current agent uses {'GNN' if self.use_gnn else 'encoder-decoder'}.")
+            print(f"To ensure proper loading, the agent architecture should match the saved model.")
+            print(f"Setting use_gnn={use_gnn_in_checkpoint} to match the saved model.")
+            self.use_gnn = use_gnn_in_checkpoint
             
         # Load other components that should be compatible
         try:
             if self.use_gnn:
-                self.inference_module.load_state_dict(checkpoint['inference_module'])
+                if 'inference_module' in checkpoint:
+                    self.inference_module.load_state_dict(checkpoint['inference_module'])
+                else:
+                    print("Warning: Saved model doesn't contain GNN inference module. "
+                          "Unable to load inference module state.")
             else:
-                self.encoder.load_state_dict(checkpoint['encoder'])
-                self.decoder.load_state_dict(checkpoint['decoder'])
+                if 'encoder' in checkpoint and 'decoder' in checkpoint:
+                    self.encoder.load_state_dict(checkpoint['encoder'])
+                    self.decoder.load_state_dict(checkpoint['decoder'])
+                else:
+                    print("Warning: Saved model doesn't contain encoder/decoder. "
+                          "Unable to load inference module state.")
+            
+            # Always try to load policy network
             self.policy.load_state_dict(checkpoint['policy'])
         except RuntimeError as e:
             print(f"Warning: Could not load some components: {e}")
@@ -865,40 +990,6 @@ class POLARISAgent:
         if is_gru_to_transformer:
             print("Knowledge transfer from GRU to Transformer attempted.")
             print("For best performance, you should retrain the model for a few episodes.")
-            
-    def _transfer_gru_to_transformer_knowledge(self, checkpoint):
-        """
-        Transfer knowledge from a GRU model to a Transformer model.
-        This helps preserve some of the learned knowledge when switching architectures.
-        """
-        try:
-            # The most important part to transfer is the belief head weights
-            # which map from hidden state to belief distribution
-            if 'belief_processor' in checkpoint:
-                gru_state_dict = checkpoint['belief_processor']
-                
-                # Transfer belief head weights if they have the same dimensions
-                if 'belief_head.weight' in gru_state_dict and gru_state_dict['belief_head.weight'].size() == self.belief_processor.belief_head.weight.size():
-                    self.belief_processor.belief_head.weight.data.copy_(gru_state_dict['belief_head.weight'])
-                    self.belief_processor.belief_head.bias.data.copy_(gru_state_dict['belief_head.bias'])
-                    print("Successfully transferred belief head weights from GRU to Transformer.")
-                    
-                # We can also try to initialize the input projection with GRU input weights
-                if 'gru.weight_ih_l0' in gru_state_dict:
-                    # The input weights of GRU can be used to initialize part of the input projection
-                    gru_input_weights = gru_state_dict['gru.weight_ih_l0']
-                    input_dim = min(gru_input_weights.size(1), self.belief_processor.input_projection.weight.size(1))
-                    output_dim = min(gru_input_weights.size(0) // 3, self.belief_processor.input_projection.weight.size(0))
-                    
-                    # Copy the reset gate weights (first third of GRU weights)
-                    self.belief_processor.input_projection.weight.data[:output_dim, :input_dim].copy_(
-                        gru_input_weights[:output_dim, :input_dim]
-                    )
-                    print("Partially initialized Transformer input projection with GRU weights.")
-                    
-        except Exception as e:
-            print(f"Error during knowledge transfer: {e}")
-            print("Continuing with randomly initialized Transformer.")
 
     def get_belief_state(self):
         """Return the current belief state.
@@ -941,67 +1032,3 @@ class POLARISAgent:
         """
         return self.current_opponent_belief_distribution if hasattr(self, 'current_opponent_belief_distribution') else None
         
-    def calculate_path_integrals(self, replay_buffer):
-        """
-        Legacy method for compatibility. Use register_task() for online tracking instead.
-        This method may be called when transitioning to a new task in simulation.
-        
-        Args:
-            replay_buffer: The replay buffer containing transitions (not used)
-        """
-        if not self.use_si:
-            print(f"Agent {self.agent_id}: SI not enabled. Skipping.")
-            return
-        
-        print(f"Agent {self.agent_id}: Using online path integral tracking instead of replay buffer.")
-        
-        # Register the current task if not done already
-        if hasattr(self, 'belief_si') and hasattr(self, 'policy_si'):
-            if self.current_true_state is not None:
-                print(f"Registering task for true state {self.current_true_state}")
-                self.belief_si.register_task()
-                self.policy_si.register_task()
-            
-            # Create copies of the trackers for visualization and comparison
-            if hasattr(self, 'current_true_state') and self.current_true_state is not None:
-                print(f"Storing SI trackers for true state {self.current_true_state}")
-                self.state_belief_si_trackers[self.current_true_state] = self._clone_si_tracker(self.belief_si)
-                self.state_policy_si_trackers[self.current_true_state] = self._clone_si_tracker(self.policy_si)
-        
-        # Mark that this agent is using SI
-        self.path_integrals_calculated = True
-        print(f"Agent {self.agent_id}: Online SI tracking enabled.")
-    
-    def _clone_si_tracker(self, tracker):
-        """Create a deep copy of an SI tracker for state comparison."""
-        # Create a new tracker with the same parameters
-        cloned_tracker = SILoss(
-            model=tracker.model,
-            importance=tracker.importance,
-            damping=tracker.damping,
-            device=tracker.device
-        )
-        
-        # Copy importance scores (these need to be deep copied)
-        for name, importance in tracker.importance_scores.items():
-            cloned_tracker.importance_scores[name] = importance.clone().detach()
-        
-        # Copy previous parameters (reference parameters)
-        if hasattr(tracker, 'previous_params'):
-            for name, param in tracker.previous_params.items():
-                cloned_tracker.previous_params[name] = param.clone().detach()
-                
-        # Copy path integrals if they exist
-        if hasattr(tracker, 'param_path_integrals'):
-            for name, integral in tracker.param_path_integrals.items():
-                cloned_tracker.param_path_integrals[name] = integral.clone().detach()
-                
-        return cloned_tracker
-    
-    def end_episode(self):
-        """
-        Backward compatibility method - does nothing in the continuous version.
-        The internal state is maintained across what would have been episode boundaries.
-        """
-        pass
-    

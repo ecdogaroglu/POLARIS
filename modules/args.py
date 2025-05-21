@@ -10,9 +10,14 @@ def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Train and evaluate POLARIS in social learning")
     
-    # Environment parameters
+    # Environment selection
+    parser.add_argument('--environment-type', type=str, default='brandl',
+                        choices=['brandl', 'strategic_experimentation'],
+                        help='Type of social learning environment to use')
+    
+    # Shared environment parameters
     parser.add_argument('--num-agents', type=int, default=2, help='Number of agents')
-    parser.add_argument('--signal-accuracy', type=float, default=0.75, help='Accuracy of private signals')
+    parser.add_argument('--num-states', type=int, default=2, help='Number of possible states')
     parser.add_argument('--network-type', type=str, default='complete', 
                         choices=['complete', 'ring', 'star', 'random'], help='Network structure')
     parser.add_argument('--network-density', type=float, default=0.5, 
@@ -20,6 +25,28 @@ def parse_args():
     parser.add_argument('--horizon', type=int, default=1000, help='Total number of steps')
     parser.add_argument('--num-episodes', type=int, default=1, 
                         help='Number of episodes for training (true state is reset between episodes)')
+    
+    # Brandl environment-specific parameters
+    parser.add_argument('--signal-accuracy', type=float, default=0.75, 
+                        help='Accuracy of private signals (Brandl environment)')
+    
+    # Strategic experimentation environment-specific parameters
+    parser.add_argument('--safe-payoff', type=float, default=1.0,
+                        help='Deterministic payoff of the safe arm (Strategic experimentation)')
+    parser.add_argument('--drift-rates', type=str, default='-0.5,0.5',
+                        help='Comma-separated list of drift rates for each state (Strategic experimentation)')
+    parser.add_argument('--diffusion-sigma', type=float, default=0.5,
+                        help='Volatility of the diffusion component (Strategic experimentation)')
+    parser.add_argument('--jump-rates', type=str, default='0.1,0.2',
+                        help='Comma-separated list of Poisson rates for jumps in each state (Strategic experimentation)')
+    parser.add_argument('--jump-sizes', type=str, default='1.0,1.0',
+                        help='Comma-separated list of expected jump sizes in each state (Strategic experimentation)')
+    parser.add_argument('--background-informativeness', type=float, default=0.1,
+                        help='Informativeness of the background signal process (Strategic experimentation)')
+    parser.add_argument('--time-step', type=float, default=0.1,
+                        help='Size of time step for discretizing the Lévy processes (Strategic experimentation)')
+    parser.add_argument('--continuous-actions', action='store_true',
+                        help='Use continuous action space for resource allocation in strategic experimentation')
     
     # Training parameters
     parser.add_argument('--batch-size', type=int, default=128, help='Batch size')
@@ -77,12 +104,19 @@ def parse_args():
     parser.add_argument('--eval-only', action='store_true', 
                         help='Only run evaluation, no training')
     parser.add_argument('--train-then-evaluate', action='store_true', 
-                        help='Train for 4 episodes with horizon 1000, then evaluate for 4 episodes with horizon 1000')
+                        help='Train for specified episodes then evaluate')
+    
+    # Compare environment frameworks
+    parser.add_argument('--compare-frameworks', action='store_true',
+                        help='Compare Brandl and Strategic Experimentation frameworks')
+    
     # Visualization options
     parser.add_argument('--plot-internal-states', action='store_true',
                         help='Generate detailed visualizations of internal states (belief, latent, decision boundaries)')
     parser.add_argument('--plot-type', type=str, default='both', choices=['belief', 'latent', 'both'],
                         help='Type of internal state to plot (belief, latent, or both)')
+    parser.add_argument('--plot-allocations', action='store_true',
+                        help='Plot agent allocations over time for strategic experimentation')
     parser.add_argument('--latex-style', action='store_true',
                         help='Use LaTeX-style formatting for plots (publication quality)')
     parser.add_argument('--use-tex', action='store_true',
@@ -95,5 +129,13 @@ def parse_args():
     # Process network sizes
     if hasattr(args, 'network_sizes'):
         args.network_sizes_list = [int(size) for size in args.network_sizes.split(',')]
+    
+    # Process list parameters
+    if hasattr(args, 'drift_rates'):
+        args.drift_rates_list = [float(rate) for rate in args.drift_rates.split(',')]
+    if hasattr(args, 'jump_rates'):
+        args.jump_rates_list = [float(rate) for rate in args.jump_rates.split(',')]
+    if hasattr(args, 'jump_sizes'):
+        args.jump_sizes_list = [float(size) for size in args.jump_sizes.split(',')]
     
     return args
