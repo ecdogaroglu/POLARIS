@@ -4,10 +4,10 @@ import torch.nn.functional as F
 import numpy as np
 import math
 
-from modules.networks import EncoderNetwork, DecoderNetwork, PolicyNetwork, ContinuousPolicyNetwork, QNetwork, TransformerBeliefProcessor, TemporalGNN
-from modules.replay_buffer import ReplayBuffer
-from modules.utils import get_best_device, encode_observation
-from modules.si import SILoss, calculate_path_integral_from_replay_buffer
+from polaris.agent.networks import EncoderNetwork, DecoderNetwork, PolicyNetwork, ContinuousPolicyNetwork, QNetwork, TransformerBeliefProcessor, TemporalGNN
+from polaris.agent.replay_buffer import ReplayBuffer
+from polaris.utils.utils import get_best_device, encode_observation
+from polaris.utils.si import SILoss, calculate_path_integral_from_replay_buffer
 
 class POLARISAgent:
     """POLARIS agent for social learning with additional advantage-based Transformer training."""

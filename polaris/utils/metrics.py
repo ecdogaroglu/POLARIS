@@ -6,7 +6,7 @@ import json
 import numpy as np
 import torch
 from pathlib import Path
-from modules.utils import calculate_learning_rate
+from polaris.utils.utils import calculate_learning_rate
 
 
 def calculate_policy_kl_divergence(policy_mean, policy_std, mpe_allocation):
@@ -75,18 +75,11 @@ def initialize_metrics(env, args, training):
         metrics['opponent_belief_distributions'] = {agent_id: [] for agent_id in range(env.num_agents)}
     
     # Add strategic experimentation specific metrics if applicable
-    if hasattr(env, 'safe_payoff'):
-        # Add theoretical bounds
-        metrics['theoretical_bounds'] = {
-            'mpe_neutral': env.get_theoretical_mpe(env.num_agents * [0.5])[0],
-            'mpe_good_state': env.get_theoretical_mpe(env.num_agents * [0.8])[0],
-            'mpe_bad_state': env.get_theoretical_mpe(env.num_agents * [0.2])[0]
-        }
-        
+    if hasattr(env, 'safe_payoff'):   
         # Add allocation tracking for continuous actions
         if hasattr(args, 'continuous_actions') and args.continuous_actions:
             metrics['allocations'] = {agent_id: [] for agent_id in range(env.num_agents)}
-            
+            metrics["mpe_allocations"] = {agent_id: [] for agent_id in range(env.num_agents)}
             # Add KL divergence tracking for policy convergence
             metrics['policy_kl_divergence'] = {agent_id: [] for agent_id in range(env.num_agents)}
             metrics['policy_means'] = {agent_id: [] for agent_id in range(env.num_agents)}
@@ -131,6 +124,7 @@ def update_metrics(metrics, info, actions, action_probs=None, beliefs=None, late
             for agent_id in range(len(allocations)):
                 if agent_id in metrics['allocations']:
                     metrics['allocations'][agent_id].append(allocations[agent_id])
+                    print(f"Agent {agent_id} allocation: {allocations[agent_id]}")
         else:
             print(f"Warning: Unsupported allocations format: {type(allocations)}")
     
@@ -159,26 +153,22 @@ def update_metrics(metrics, info, actions, action_probs=None, beliefs=None, late
                     # Try to get agent beliefs from info
                     if 'agent_beliefs' in info and agent_id in info['agent_beliefs']:
                         agent_belief = info['agent_beliefs'][agent_id]
-                    # If not available, try to infer from belief state or distribution
-                    elif beliefs is not None and agent_id in beliefs:
-                        # Check if we have belief distributions
-                        if isinstance(beliefs[agent_id], torch.Tensor) and beliefs[agent_id].dim() > 1:
-                            if beliefs[agent_id].shape[-1] == 2:  # Binary state case
-                                agent_belief = beliefs[agent_id][0, 1].item()  # Probability of state 1
-                    
+
                     # Get environment parameters from info if available
                     env_params = info.get('env_params', {})
-                    safe_payoff = env_params.get('safe_payoff', 1.0)
+                    safe_payoff = env_params.get('safe_payoff')
                     
                     # If no drift rates provided, use defaults
-                    drift_rates = env_params.get('drift_rates', [-0.5, 0.5])
-                    jump_rates = env_params.get('jump_rates', [0.1, 0.2])
-                    jump_sizes = env_params.get('jump_sizes', [1.0, 1.0])
-                    background_informativeness = env_params.get('background_informativeness', 0.1)
-                    num_agents = env_params.get('num_agents', 2)
-                    
+                    drift_rates = env_params.get('drift_rates')
+                    jump_rates = env_params.get('jump_rates')
+                    jump_sizes = env_params.get('jump_sizes')
+                    background_informativeness = env_params.get('background_informativeness')
+                    num_agents = env_params.get('num_agents')
+                    true_state = env_params.get('true_state')
+
                     # Calculate dynamic MPE based on current belief
                     mpe_allocation = calculate_dynamic_mpe(
+                        true_state,
                         agent_belief, 
                         safe_payoff,
                         drift_rates,
@@ -194,6 +184,7 @@ def update_metrics(metrics, info, actions, action_probs=None, beliefs=None, late
                         info['policy_stds'][agent_id],
                         mpe_allocation
                     )
+                    metrics["mpe_allocations"][agent_id].append(mpe_allocation)
                     metrics['policy_kl_divergence'][agent_id].append(kl)
                 
     # Update belief states if requested and available
@@ -214,9 +205,7 @@ def update_metrics(metrics, info, actions, action_probs=None, beliefs=None, late
     return metrics
 
 
-def calculate_dynamic_mpe(belief, safe_payoff=1.0, drift_rates=[-0.5, 0.5], 
-                         jump_rates=[0.1, 0.2], jump_sizes=[1.0, 1.0],
-                         background_informativeness=0.1, num_agents=2):
+def calculate_dynamic_mpe(true_state, belief, safe_payoff, drift_rates, jump_rates, jump_sizes, background_informativeness, num_agents):
     """
     Calculate the Markov perfect equilibrium allocation dynamically based on current belief.
     
@@ -240,38 +229,26 @@ def calculate_dynamic_mpe(belief, safe_payoff=1.0, drift_rates=[-0.5, 0.5],
         (1 - belief) * (drift_rates[0] + jump_rates[0] * jump_sizes[0])
     )
     
-    # Expected myopic payoff from the risky arm
-    myopic_payoff = expected_risky_payoff
     
     # Full information payoff (value when state is known to be good)
-    full_info_payoff = max(safe_payoff, drift_rates[1] + jump_rates[1] * jump_sizes[1])
+    full_info_payoff = belief * max(safe_payoff, drift_rates[1] + jump_rates[1] * jump_sizes[1]) + (1 - belief) * safe_payoff
     
-    # If expected risky payoff is better than safe, allocate everything to risky
-    if myopic_payoff > safe_payoff:
-        return 1.0
-    # If expected risky payoff is worse, but potentially good state exists
-    elif myopic_payoff < safe_payoff:
-        # Calculate incentive to experiment
-        if drift_rates[1] + jump_rates[1] * jump_sizes[1] > safe_payoff:
-            # Incentive defined in the Keller and Rady paper
-            incentive = (full_info_payoff - safe_payoff) / (safe_payoff - myopic_payoff)
-            
-            # Adjust for number of players and background signal
-            k0 = background_informativeness
-            n = num_agents
-            
-            if incentive <= k0:
-                return 0.0  # No experimentation
-            elif k0 < incentive < k0 + n - 1:
-                # Partial experimentation
-                return (incentive - k0) / (n - 1)
-            else:
-                return 1.0  # Full experimentation
-        else:
-            return 0.0  # Risky arm never better than safe
+
+    # Incentive defined in the Keller and Rady paper
+    incentive = (full_info_payoff - safe_payoff) / (safe_payoff - expected_risky_payoff)
+    # Adjust for number of players and background signal
+    k0 = background_informativeness
+    n = num_agents
+
+    if incentive <= k0:
+        return 0.0  # No experimentation
+    
+    elif k0 < incentive < k0 + n - 1:
+        # Partial experimentation
+        return (incentive - k0) / (n - 1)
     else:
-        # Indifferent, allocate randomly
-        return 0.5
+        return 1.0  # Full experimentation
+
 
 
 def store_incorrect_probabilities(metrics, info, num_agents):

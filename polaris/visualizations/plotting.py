@@ -11,9 +11,9 @@ import os
 from scipy import stats
 from pathlib import Path
 
-from modules.metrics import process_incorrect_probabilities, print_debug_info_for_plotting
-from modules.utils import calculate_learning_rate
-from modules.latex_style import set_latex_style, format_axis_in_latex_style, save_figure_for_publication
+from polaris.utils.metrics import process_incorrect_probabilities
+from polaris.utils.utils import calculate_learning_rate
+from polaris.visualizations.latex_style import set_latex_style, format_axis_in_latex_style, save_figure_for_publication
 
 def generate_plots(metrics, env, args, output_dir, training, episodic_metrics=None, use_latex=False):
     """

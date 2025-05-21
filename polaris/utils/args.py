@@ -3,7 +3,7 @@ Command-line argument parsing for POLARIS experiments.
 """
 
 import argparse
-from modules.utils import get_best_device
+from polaris.utils.utils import get_best_device
 
 
 def parse_args():

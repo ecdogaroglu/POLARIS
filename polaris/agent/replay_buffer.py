@@ -1,4 +1,4 @@
-from modules.utils import get_best_device
+from polaris.utils.utils import get_best_device
 from collections import deque
 import numpy as np
 import torch

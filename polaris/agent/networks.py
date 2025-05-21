@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from modules.utils import get_best_device
+from polaris.utils.utils import get_best_device
 
 # Add new imports for graph operations
 import torch_geometric

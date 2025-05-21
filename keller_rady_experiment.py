@@ -13,9 +13,9 @@ import numpy as np
 import argparse
 from pathlib import Path
 
-from modules.environment import StrategicExperimentationEnvironment
-from modules.args import parse_args
-from modules.simulation import run_agents
+from polaris.environments.strategic import StrategicExperimentationEnvironment
+from polaris.utils.args import parse_args
+from polaris.simulation import run_agents
 
 
 def main():
@@ -36,8 +36,13 @@ def main():
     # Training phase
     print("\n=== Training phase ===\n")
     train_args = argparse.Namespace(**vars(args))
+    train_args.safe_payoff = 0.5
+    train_args.drift_rates_list = [0, 1]
+    train_args.jump_rates_list = [0, 0.5]
+    train_args.jump_sizes_list = [1.0, 1.0]
+    train_args.num_agents = 10
     train_args.num_episodes = 1
-    train_args.horizon = 200
+    train_args.horizon = 100
     train_args.eval_only = False
     train_args.save_model = True
     # Force GNN usage (no traditional encoder option)
@@ -54,25 +59,7 @@ def main():
     train_args.plot_allocations = True
     train_args.plot_internal_states = False  # Enable belief state plotting
     run_strategic_experiment(train_args)
-    """"
-    # Evaluation phase
-    print("\n=== Evaluation phase ===\n")
-    eval_args = argparse.Namespace(**vars(args))
-    eval_args.num_episodes = 10
-    eval_args.horizon = 100
-    eval_args.eval_only = True
-    eval_args.load_model = 'auto'
-    eval_args.visualize_si = False
-    # Force GNN usage for evaluation too (must match the training architecture)
-    eval_args.use_gnn = True 
-    eval_args.discount_factor = 0.0  # Keep average reward for evaluation
-    # Keep continuous action space for evaluation
-    eval_args.continuous_actions = True
-    # Plot agent allocations and internal states
-    eval_args.plot_allocations = True
-    eval_args.plot_internal_states = True  # Enable belief state plotting
-    run_strategic_experiment(eval_args)
-    """
+    
 
 
 def run_strategic_experiment(args):
@@ -117,7 +104,7 @@ def run_strategic_experiment(args):
     
     
     # Print learning method
-    if args.discount_factor <= 0.0:
+    if args.discount_factor == 0.0:
         print(f"Using average reward criterion (discount factor: 0.0)")
     else:
         print(f"Using discounted reward criterion (discount factor: {args.discount_factor})")

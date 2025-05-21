@@ -13,9 +13,9 @@ import numpy as np
 import argparse  # Import here to avoid shadowing the argparse from modules.args
 from pathlib import Path
 
-from modules.environment import SocialLearningEnvironment
-from modules.args import parse_args
-from modules.simulation import run_agents
+from polaris.environments.social import SocialLearningEnvironment
+from polaris.utils.args import parse_args
+from polaris.simulation import run_agents
 
 
 def main():
@@ -36,17 +36,17 @@ def main():
     # Training phase
     print("\n=== Training phase ===\n")
     train_args = argparse.Namespace(**vars(args))
-    train_args.num_episodes = 2
+    train_args.num_episodes = 1
     train_args.horizon = 1000
     train_args.eval_only = False
     train_args.save_model = True
     train_args.use_gnn = True
-    train_args.use_si = True
+    train_args.use_si = False
     train_args.si_importance = 10
-    train_args.visualize_si = True
+    train_args.visualize_si = False
     train_args.si_exclude_final_layers = False
     run_brandl_experiment(train_args)
-
+    """""
     # Evaluation phase
     print("\n=== Evaluation phase ===\n")
     eval_args = argparse.Namespace(**vars(args))
@@ -56,7 +56,7 @@ def main():
     eval_args.load_model = 'auto'
     eval_args.visualize_si = False
     eval_args.use_gnn = True  # Match the training setting
-    run_brandl_experiment(eval_args)
+    run_brandl_experiment(eval_args)"""
 
 
 def run_brandl_experiment(args):

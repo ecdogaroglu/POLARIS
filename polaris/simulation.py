@@ -6,13 +6,12 @@ import numpy as np
 import time
 import torch
 from tqdm import tqdm
-from modules.utils import (
+from polaris.utils.utils import (
     create_output_directory,
     calculate_observation_dimension,
     encode_observation, 
     setup_random_seeds,
     calculate_theoretical_bounds,
-    display_theoretical_bounds,
     write_config_file,
     flatten_episodic_metrics,
     save_final_models,
@@ -23,17 +22,17 @@ from modules.utils import (
     update_progress_display,
     store_transition_in_buffer,
     load_agent_models)
-from modules.metrics import (
+from polaris.utils.metrics import (
     initialize_metrics, 
     update_metrics, 
     calculate_agent_learning_rates_from_metrics,
     prepare_serializable_metrics,
     save_metrics_to_file
 )
-from modules.plotting import generate_plots
-from modules.agent import POLARISAgent
-from modules.networks import TemporalGNN
-from modules.replay_buffer import ReplayBuffer
+from polaris.visualizations.plotting import generate_plots
+from polaris.agent.polaris_agent import POLARISAgent
+from polaris.agent.networks import TemporalGNN
+from polaris.agent.replay_buffer import ReplayBuffer
 
 def run_agents(env, args, training=True, model_path=None):
     """
@@ -60,7 +59,7 @@ def run_agents(env, args, training=True, model_path=None):
     
     # Store agents for potential SI visualization
     if hasattr(args, 'visualize_si') and args.visualize_si and training:
-        from modules.si_visualizer import create_si_visualizations
+        from polaris.visualizations.si_visualizer import create_si_visualizations
         create_si_visualizations(agents, output_dir)
 
     # Calculate and display theoretical bounds
@@ -72,7 +71,6 @@ def run_agents(env, args, training=True, model_path=None):
     # Write configuration if training
     if training:
         write_config_file(args, env, theoretical_bounds, output_dir)
-
 
     print(f"Running {args.num_episodes} episode(s) with {args.horizon} steps per episode")
     
@@ -108,7 +106,7 @@ def run_agents(env, args, training=True, model_path=None):
     
     # Create SI visualizations after training is complete
     if hasattr(args, 'visualize_si') and args.visualize_si and training:
-        from modules.si_visualizer import create_si_visualizations
+        from polaris.visualizations.si_visualizer import create_si_visualizations
         print("\n===== FINAL SI STATE (AFTER TRAINING) =====")
         create_si_visualizations(agents, output_dir)
     
@@ -134,7 +132,7 @@ def run_agents(env, args, training=True, model_path=None):
     
     # Generate plots with LaTeX style if requested
     generate_plots(
-        combined_metrics, 
+        combined_metrics,
         env, 
         args, 
         output_dir, 
@@ -156,9 +154,15 @@ def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, train
     observations = env.initialize()
     total_rewards = np.zeros(env.num_agents) if training else None
     
-    # Print the true state
-    print(f"True state for this episode: {env.true_state}")
-    
+    if hasattr(env, 'safe_payoff'):
+        # Print the true state
+        if env.true_state == 0:
+            print(f"True state is bad. Drift rate: {env.drift_rates[env.true_state]} Jump rate: {env.jump_rates[env.true_state]} Jump size: {env.jump_sizes[env.true_state]}")
+        else:
+            print(f"True state is good. Drift rate: {env.drift_rates[env.true_state]} Jump rate: {env.jump_rates[env.true_state]} Jump size: {env.jump_sizes[env.true_state]}")    
+    else:
+        print(f"True state is {env.true_state}")
+
     # If training and using SI, set the current true state for all agents
     if training and hasattr(args, 'use_si') and args.use_si:
         current_true_state = env.true_state
@@ -193,9 +197,10 @@ def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, train
             'safe_payoff': env.safe_payoff,
             'drift_rates': env.drift_rates,
             'jump_rates': env.jump_rates,
-            'jump_sizes': env.jump_sizes if hasattr(env, 'jump_sizes') else [1.0] * env.num_states,
+            'jump_sizes': env.jump_sizes,
             'background_informativeness': env.background_informativeness,
-            'num_agents': env.num_agents
+            'num_agents': env.num_agents,
+            'true_state': env.true_state
         }
     
     # Main simulation loop
