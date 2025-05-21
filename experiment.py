@@ -48,23 +48,6 @@ def main():
         args.visualize_si = False  # No need to visualize during evaluation
         run_experiment(args)
 
-    elif args.compare_frameworks:
-        # Run both Brandl and Strategic Experimentation frameworks
-        print("=== Running comparison between Brandl and Strategic Experimentation frameworks ===")
-        
-        # Run Brandl framework
-        print("\n=== Running Brandl framework ===\n")
-        args.environment_type = 'brandl'
-        args.exp_name = 'brandl_framework'
-        run_experiment(args)
-        
-        # Run Strategic Experimentation framework
-        print("\n=== Running Strategic Experimentation framework ===\n")
-        args.environment_type = 'strategic_experimentation'
-        args.exp_name = 'strategic_experimentation_framework'
-        run_experiment(args)
-        
-        print("\n=== Comparison complete ===")
     else:
         run_experiment(args)
 

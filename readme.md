@@ -6,9 +6,9 @@ POLARIS is a framework for multi-agent reinforcement learning in social learning
 
 This repository implements two key frameworks from economic social learning theory:
 
-1. **Brandl Framework** (Learning without Experimentation): Agents learn from private signals and by observing other agents' actions, without direct payoff feedback from their own actions.
+1. **Strategic Experimentation Framework** (Keller, Rady (2020) Model): Agents allocate resources between a safe arm with known payoff and a risky arm with unknown state-dependent payoff, learning from their own and others' observed rewards.
 
-2. **Strategic Experimentation Framework** (Keller-Rady Model): Agents allocate resources between a safe arm with known payoff and a risky arm with unknown state-dependent payoff, learning from their own and others' observed rewards.
+2. **Learning without Experimentation Framework** (Brandl (2024) Model): Agents learn from private signals and by observing other agents' actions, without direct payoff feedback from their own actions.
 
 Both frameworks are implemented using the Partially Observable Active Markov Game (POAMG) formalism, which extends standard reinforcement learning to account for partial observability and strategic influence between agents.
 
@@ -39,22 +39,14 @@ python experiment.py --environment-type [brandl|strategic_experimentation] [opti
 
 For convenience, we provide specialized scripts for each framework:
 
-- For Brandl framework (learning without experimentation):
+- For Learning without Experimentation framework:
 ```bash
 python brandl_experiment.py [options]
 ```
 
 - For Strategic Experimentation framework:
 ```bash
-python strategic_experiment.py [options]
-```
-
-### Comparing Both Frameworks
-
-To run both frameworks and compare them:
-
-```bash
-python experiment.py --compare-frameworks
+python keller_rady_experiment.py [options]
 ```
 
 ## Key Parameters
@@ -69,10 +61,6 @@ python experiment.py --compare-frameworks
 - `--num-episodes`: Number of episodes for training (default: 1)
 - `--seed`: Random seed (default: 42)
 
-### Brandl Framework Parameters
-
-- `--signal-accuracy`: Accuracy of private signals (default: 0.75)
-
 ### Strategic Experimentation Parameters
 
 - `--safe-payoff`: Deterministic payoff of the safe arm (default: 1.0)
@@ -83,6 +71,11 @@ python experiment.py --compare-frameworks
 - `--background-informativeness`: Informativeness of the background signal process (default: 0.1)
 - `--time-step`: Size of time step for discretizing the Lévy processes (default: 0.1)
 
+### Learning without Experimentation Framework Parameters
+
+- `--signal-accuracy`: Accuracy of private signals (default: 0.75)
+
+
 ### Agent Parameters
 
 - `--discount-factor`: Discount factor for RL (0 = average reward, default: 0.9)
@@ -90,31 +83,6 @@ python experiment.py --compare-frameworks
 - `--use-gnn`: Use Graph Neural Network with temporal attention
 - `--use-si`: Use Synaptic Intelligence to prevent catastrophic forgetting
 
-## Examples
-
-### Running a Brandl Experiment
-
-```bash
-python brandl_experiment.py --num-agents 4 --network-type complete --signal-accuracy 0.8
-```
-
-### Running a Strategic Experimentation Experiment
-
-```bash
-python strategic_experiment.py --num-agents 2 --network-type complete --safe-payoff 1.5 --drift-rates "-0.4,0.6" --background-informativeness 0.2
-```
-
-### Network Size Comparison
-
-```bash
-python brandl_experiment.py --compare-sizes --network-sizes 2,4,8,16 --network-type complete
-```
-
-### Training and Evaluation
-
-```bash
-python brandl_experiment.py --train-then-evaluate --num-episodes 5 --horizon 5000
-```
 
 ## Architecture
 
@@ -122,8 +90,8 @@ The framework is built with a modular architecture:
 
 1. **Base Environment**: Abstract base class that defines the interface for all environment implementations
 2. **Specific Environments**:
-   - `SocialLearningEnvironment`: Implements the Brandl framework
    - `StrategicExperimentationEnvironment`: Implements the Keller-Rady model
+   - `SocialLearningEnvironment`: Implements the Brandl model
 3. **POLARIS Agent**: Reinforcement learning agent with three key components:
    - Belief processing module using Transformers
    - Inference learning module with GNNs
@@ -131,8 +99,10 @@ The framework is built with a modular architecture:
 
 ## Theoretical Foundations
 
-- **Brandl Framework**: Based on [Brandl (2024)](https://github.com/ecdogaroglu/POLARIS), focusing on learning without experimentation through action observation.
 - **Strategic Experimentation**: Based on Keller and Rady (2020), focusing on resource allocation under uncertainty with observable rewards.
+
+- **Brandl Framework**: Based on Brandl (2024), focusing on learning without experimentation through action observation.
+
 
 Both implementations are within the Partially Observable Active Markov Game framework, which captures how agents strategically influence each other's learning processes.
 
