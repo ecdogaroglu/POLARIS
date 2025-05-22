@@ -43,7 +43,7 @@ def main():
     train_args.jump_sizes_list = [1.0, 1.0]
     train_args.num_agents = 2
     train_args.num_episodes = 1
-    train_args.horizon = 10
+    train_args.horizon = 1000
     train_args.eval_only = False
     train_args.save_model = True
     train_args.use_gnn = True
@@ -58,7 +58,7 @@ def main():
     train_args.continuous_actions = True
     # Plot agent allocations and internal states
     train_args.plot_allocations = True
-    train_args.plot_internal_states = False  # Enable belief state plotting
+    train_args.plot_internal_states = True  # Enable belief state plotting
     run_strategic_experiment(train_args)
     
 

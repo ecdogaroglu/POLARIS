@@ -85,6 +85,8 @@ def initialize_metrics(env, args, training):
             metrics['policy_means'] = {agent_id: [] for agent_id in range(env.num_agents)}
             metrics['policy_stds'] = {agent_id: [] for agent_id in range(env.num_agents)}
     
+    metrics['belief_distributions'] = {agent_id: [] for agent_id in range(env.num_agents)}
+    metrics['agent_beliefs'] = {agent_id: [] for agent_id in range(env.num_agents)}
     print(f"Initialized metrics dictionary with {len(metrics['action_probs'])} agent entries")
     return metrics
 
@@ -185,12 +187,13 @@ def update_metrics(metrics, info, actions, action_probs=None, beliefs=None, late
                     )
                     metrics["mpe_allocations"][agent_id].append(mpe_allocation)
                     metrics['policy_kl_divergence'][agent_id].append(kl)
+                    metrics['agent_beliefs'][agent_id].append(agent_belief)
                 
     # Update belief states if requested and available
     if beliefs is not None and 'belief_states' in metrics:
         for agent_id, belief in beliefs.items():
             metrics['belief_states'][agent_id].append(belief)
-            
+    
     # Update latent states if requested and available
     if latent_states is not None and 'latent_states' in metrics:
         for agent_id, latent in latent_states.items():

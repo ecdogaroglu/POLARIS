@@ -404,13 +404,14 @@ def update_agent_states(agents, observations, next_observations, actions, reward
             metrics['belief_states'][agent_id].append(current_belief.detach().cpu().numpy())
             metrics['latent_states'][agent_id].append(current_latent.detach().cpu().numpy())
             
-            # Store belief distribution if available
-            belief_distribution = agent.get_belief_distribution()
-            metrics['belief_distributions'][agent_id].append(belief_distribution.detach().cpu().numpy())
                 
             # Store opponent belief distribution if available
             opponent_belief_distribution = agent.get_opponent_belief_distribution()
             metrics['opponent_belief_distributions'][agent_id].append(opponent_belief_distribution.detach().cpu().numpy())
+        
+        # Store belief distribution if available
+        belief_distribution = agent.get_belief_distribution()
+        metrics['belief_distributions'][agent_id].append(belief_distribution.detach().cpu().numpy())
         
         # Store transition in replay buffer if training
         if training and agent_id in replay_buffers:

@@ -57,6 +57,10 @@ def generate_plots(metrics, env, args, output_dir, training, episodic_metrics=No
         if 'policy_kl_divergence' in metrics:
             print("Plotting KL divergence towards MPE...")
             plot_kl_divergence(metrics, output_dir, use_latex)
+            print("Plotting policy cutoff vs belief...")
+            plot_policy_cutoff_vs_belief(metrics, output_dir, use_latex)
+            print("Plotting good belief over time...")
+            plot_good_belief_over_time(metrics, output_dir, use_latex)
     
     # If we have episodic metrics, plot with error bars
     if episodic_metrics and 'episodes' in episodic_metrics and len(episodic_metrics['episodes']) > 1:
@@ -296,20 +300,17 @@ def generate_internal_state_plots(metrics, env, args, output_dir, episode_num=No
     """
     
     # Plot belief distributions if available
-    if ('belief_distributions' in metrics and 
-        any(len(beliefs) > 0 for beliefs in metrics['belief_distributions'].values())):
-        
-        # Add episode number to title if provided
-        episode_suffix = f" - Episode {episode_num}" if episode_num is not None else ""
-        
-        plot_belief_distributions(
-            belief_distributions=metrics['belief_distributions'],
-            true_states=metrics['true_states'],
-            title=f"Belief Distributions Evolution ({args.network_type.capitalize()} Network, {env.num_agents} Agents){episode_suffix}",
-            save_path=str(output_dir / 'belief_distributions.png'),
-            episode_length=args.horizon,  # Use horizon directly
-            num_episodes=1 if episode_num is not None else args.num_episodes  # Single episode if episode_num is provided
-        )
+    # Add episode number to title if provided
+    episode_suffix = f" - Episode {episode_num}" if episode_num is not None else ""
+    
+    plot_belief_distributions(
+        belief_distributions=metrics['belief_distributions'],
+        true_states=metrics['true_states'],
+        title=f"Belief Distributions Evolution ({args.network_type.capitalize()} Network, {env.num_agents} Agents){episode_suffix}",
+        save_path=str(output_dir / 'belief_distributions.png'),
+        episode_length=args.horizon,  # Use horizon directly
+        num_episodes=1 if episode_num is not None else args.num_episodes  # Single episode if episode_num is provided
+    )
     
     # Plot opponent belief distributions if available
     if ('opponent_belief_distributions' in metrics and 
@@ -1077,4 +1078,108 @@ def plot_latent_states(metrics, agent_id, output_dir, use_latex=False):
     else:
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
     
+    plt.close()
+
+def plot_policy_cutoff_vs_belief(metrics, output_dir, use_latex=False):
+    """
+    Plot agent allocation (policy) as a function of belief, to visualize cutoff beliefs.
+    Args:
+        metrics: Dictionary of metrics including 'belief_distributions' and 'allocations'
+        output_dir: Directory to save plots
+        use_latex: Whether to use LaTeX styling
+    """
+
+    if 'agent_beliefs' not in metrics or 'allocations' not in metrics:
+        print("No belief or allocation data available for plotting cutoff.")
+        return
+
+    num_agents = len(metrics['allocations'])
+
+    good_state_index = 1
+
+    plt.figure(figsize=(5, 3))
+    for agent_id in metrics['allocations']:
+        beliefs = []
+        allocations = []
+        for t, alloc in enumerate(metrics['allocations'][agent_id]):
+            # Get belief in 'good' state at time t
+            if t < len(metrics['agent_beliefs'][agent_id]):
+                belief_good = metrics['agent_beliefs'][agent_id][t]
+                beliefs.append(belief_good)
+                allocations.append(alloc)
+                print(f"Agent {agent_id} belief at time {t}: {belief_good} allocation: {alloc}")
+
+        # Scatter plot of (belief, allocation) pairs
+        plt.scatter(beliefs, allocations, label=f'Agent {agent_id}', alpha=0.5, s=15)
+
+        # Add regression line if enough points
+        if len(beliefs) >= 2:
+            x = np.array(beliefs)
+            y = np.array(allocations)
+            # Only fit if there is some variance in x
+            if np.std(x) > 0:
+                coeffs = np.polyfit(x, y, 1)
+                reg_x = np.linspace(np.min(x), np.max(x), 100)
+                reg_y = np.polyval(coeffs, reg_x)
+                plt.plot(reg_x, reg_y, linestyle='--', linewidth=2, label=f'Regression Agent {agent_id}')
+
+    plt.xlabel("Belief in Good State")
+    plt.ylabel("Allocation to Risky Arm")
+    plt.title("Policy Cutoff: Allocation vs. Belief")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_dir / 'policy_cutoff_vs_belief.png', dpi=300)
+    plt.close()
+
+def plot_good_belief_over_time(metrics, output_dir, use_latex=False):
+    """
+    Plot the belief in the good state over time for each agent.
+    Args:
+        metrics: Dictionary of metrics including 'agent_beliefs' or 'belief_distributions'
+        output_dir: Directory to save plots
+        use_latex: Whether to use LaTeX styling
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import torch
+
+    # Try to use agent_beliefs if available, otherwise fallback to belief_distributions
+    if 'agent_beliefs' in metrics:
+        agent_beliefs = metrics['agent_beliefs']
+        use_direct = True
+        print("Using agent_beliefs")
+    else:
+        print("No belief data available for plotting good belief over time.")
+        return
+
+    # Try to infer the 'good' state index (default to 1, fallback to 0 if only 1 state)
+    good_state_index = 1
+
+    plt.figure(figsize=(8, 4))
+    for agent_id in agent_beliefs:
+        good_beliefs = []
+        for t, belief in enumerate(agent_beliefs[agent_id]):
+            if use_direct:
+                good_belief = belief
+            else:
+                if isinstance(belief, torch.Tensor):
+                    belief = belief.detach().cpu().numpy()
+                good_belief = belief[good_state_index]
+                if isinstance(good_belief, np.ndarray):
+                    if good_belief.size == 1:
+                        good_belief = float(good_belief.squeeze())
+                    else:
+                        good_belief = float(good_belief.flat[0])
+            good_beliefs.append(good_belief)
+        plt.plot(good_beliefs, label=f'Agent {agent_id}')
+
+    plt.xlabel("Time Step")
+    plt.ylabel("Belief in Good State")
+    plt.title("Belief in Good State Over Time")
+    plt.ylim(0, 1)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_dir / 'good_belief_over_time.png', dpi=300)
     plt.close()
