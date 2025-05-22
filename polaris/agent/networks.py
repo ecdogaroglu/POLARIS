@@ -14,14 +14,23 @@ class TransformerBeliefProcessor(nn.Module):
         super(TransformerBeliefProcessor, self).__init__()
         self.device = device
         self.hidden_dim = hidden_dim
-        self.input_dim = action_dim + num_belief_states  # Fixed input dimension calculation
         self.action_dim = action_dim
         self.num_belief_states = num_belief_states
         self.nhead = nhead
         self.num_layers = num_layers
         
-        # Input projection to match hidden dimension
-        self.input_projection = nn.Linear(self.input_dim, hidden_dim)
+        # For continuous signals, the signal will be a single value
+        # For discrete signals, the signal will be one-hot encoded with num_belief_states
+        # We'll handle both cases by detecting the input dimension
+        self.supports_continuous_signal = True
+        
+        # Signal-only input dimensions (no neighbor actions)
+        self.continuous_signal_dim = 1  # Just the continuous signal
+        self.discrete_signal_dim = num_belief_states  # Just the discrete signal
+        
+        # Input projections to match hidden dimension (for signal-only processing)
+        self.signal_only_projection = nn.Linear(self.discrete_signal_dim, hidden_dim)
+        self.continuous_signal_projection = nn.Linear(self.continuous_signal_dim, hidden_dim)
         
         # Positional encoding for transformer
         self.pos_encoder = nn.Parameter(torch.zeros(1, 1, hidden_dim))
@@ -45,8 +54,10 @@ class TransformerBeliefProcessor(nn.Module):
         self.belief_head = nn.Linear(hidden_dim, num_belief_states)
         
         # Initialize parameters
-        nn.init.xavier_normal_(self.input_projection.weight)
-        nn.init.constant_(self.input_projection.bias, 0)
+        nn.init.xavier_normal_(self.signal_only_projection.weight)
+        nn.init.constant_(self.signal_only_projection.bias, 0)
+        nn.init.xavier_normal_(self.continuous_signal_projection.weight)
+        nn.init.constant_(self.continuous_signal_projection.bias, 0)
         nn.init.xavier_normal_(self.belief_head.weight)
         nn.init.constant_(self.belief_head.bias, 0)
         nn.init.normal_(self.pos_encoder, mean=0.0, std=0.02)
@@ -70,37 +81,51 @@ class TransformerBeliefProcessor(nn.Module):
             
         return belief
     
-    def forward(self, signal, neighbor_actions, current_belief=None):
-        """Update belief state based on new observation."""
+    def forward(self, signal, neighbor_actions=None, current_belief=None):
+        """Update belief state based on new observation. Only uses signals, ignores neighbor_actions."""
         # Handle both batched and single inputs
         
-        # Ensure we have batch dimension for both inputs
+        # Ensure we have batch dimension for signal
         if signal.dim() == 1:
             signal = signal.unsqueeze(0)
-        if neighbor_actions.dim() == 1:
-            neighbor_actions = neighbor_actions.unsqueeze(0)
             
         batch_size = signal.size(0)
+        
+        # Detect if signal is continuous (1-dimensional) or discrete (one-hot encoded)
+        is_continuous_signal = signal.size(1) == 1
             
-        # Ensure signal and neighbor_actions have correct dimensions
-        if signal.size(1) != self.num_belief_states:
-            signal = signal[:, :self.num_belief_states]
-        if neighbor_actions.size(1) != self.action_dim:
-            neighbor_actions = neighbor_actions[:, :self.action_dim]
+        # Process signal based on type (continuous or discrete)
+        if is_continuous_signal:
+            # Signal is continuous (1-dimensional)
+            # Use only the signal without neighbor actions
+            combined = signal
+            
+            # Add sequence dimension
+            combined = combined.unsqueeze(1).to(self.device)  # [batch_size, 1, 1]
+            
+            # Project input using the projection for continuous signals
+            # We'll need a separate projection for just the continuous signal
+            projected = self.continuous_signal_projection(combined)
+        else:
+            # Signal is discrete (one-hot encoded)
+            # Ensure signal has correct dimensions
+            if signal.size(1) != self.num_belief_states:
+                signal = signal[:, :self.num_belief_states]
+                
+            # Use only the signal without neighbor actions
+            combined = signal
+            
+            # Add sequence dimension (Transformer expects [batch, seq_len, features])
+            combined = combined.unsqueeze(1).to(self.device)  # [batch_size, 1, num_belief_states]
+            
+            # Project input using the projection for discrete signals
+            projected = self.signal_only_projection(combined)
             
         # Initialize or standardize current_belief
         if current_belief is None:
             current_belief = torch.zeros(1, batch_size, self.hidden_dim, device=self.device)
         else:
             current_belief = self.standardize_belief_state(current_belief)
-            
-        # Combine inputs along feature dimension
-        combined = torch.cat([signal, neighbor_actions], dim=1)
-        # Add sequence dimension (Transformer expects [batch, seq_len, features])
-        combined = combined.unsqueeze(1).to(self.device)  # [batch_size, 1, input_dim]
-        
-        # Project input to hidden dimension
-        projected = self.input_projection(combined)
         
         # Add positional encoding
         projected = projected + self.pos_encoder
@@ -124,8 +149,16 @@ class TransformerBeliefProcessor(nn.Module):
             
             # Calculate belief distribution
             logits = self.belief_head(new_belief.squeeze(0))
-            temperature = 1  # Temperature for softmax
-            belief_distribution = F.softmax(logits/temperature, dim=-1)
+            
+            # Check if we're using continuous signal (determined earlier in forward pass)
+            if is_continuous_signal:
+                # For continuous signals, we need to output a single value
+                # We'll use the first dimension as our continuous prediction
+                belief_distribution = logits[:, :1]  # Just take the first element
+            else:
+                # For discrete signals, use softmax to get a distribution
+                temperature = 1  # Temperature for softmax
+                belief_distribution = F.softmax(logits/temperature, dim=-1)
             
             # Ensure new_belief maintains shape [1, batch_size, hidden_dim]
             new_belief = self.standardize_belief_state(new_belief)
@@ -143,17 +176,30 @@ class EncoderNetwork(nn.Module):
         self.num_agents = num_agents
         self.num_belief_states = num_belief_states
         
-        # Combined input: observation, actions, reward, next_obs and current latent
-        input_dim = num_belief_states + action_dim * num_agents + 1 + num_belief_states + latent_dim
+        # Support for both discrete and continuous signals
+        # For continuous signals, signal dimension is 1
+        # For discrete signals, signal dimension is num_belief_states
         
-        # Encoder network layers
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        # Maximum input dim (for one-hot encoded signals)
+        max_input_dim = num_belief_states + action_dim * num_agents + 1 + num_belief_states + latent_dim
+        
+        # Minimum input dim (for continuous signals)
+        min_input_dim = 1 + action_dim * num_agents + 1 + 1 + latent_dim
+        
+        # Create separate networks for each case
+        self.fc1_discrete = nn.Linear(max_input_dim, hidden_dim)
+        self.fc1_continuous = nn.Linear(min_input_dim, hidden_dim)
+        
+        # Shared layers after initial projection
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc_mean = nn.Linear(hidden_dim, latent_dim)
         self.fc_logvar = nn.Linear(hidden_dim, latent_dim)
         
         # Initialize parameters
-        nn.init.xavier_normal_(self.fc1.weight)
+        nn.init.xavier_normal_(self.fc1_discrete.weight)
+        nn.init.constant_(self.fc1_discrete.bias, 0)
+        nn.init.xavier_normal_(self.fc1_continuous.weight)
+        nn.init.constant_(self.fc1_continuous.bias, 0)
         nn.init.xavier_normal_(self.fc2.weight)
         nn.init.xavier_normal_(self.fc_mean.weight)
         nn.init.xavier_normal_(self.fc_logvar.weight)
@@ -171,6 +217,7 @@ class EncoderNetwork(nn.Module):
         reward = reward.to(self.device) 
         next_signal = next_signal.to(self.device)   
         current_latent = current_latent.to(self.device) 
+        
         # Handle different dimensions
         if current_latent.dim() == 3:  # [batch_size, 1, latent_dim]
             current_latent = current_latent.squeeze(1)
@@ -195,18 +242,37 @@ class EncoderNetwork(nn.Module):
             
         if current_latent.dim() == 1:
             current_latent = current_latent.unsqueeze(0)
-            
-        # Combine inputs along feature dimension
-        combined = torch.cat([
-            signal,
-            actions,
-            reward,
-            next_signal,
-            current_latent
-        ], dim=1).to(self.device)  # [batch_size, input_dim]
         
-        # Forward pass
-        x = F.relu(self.fc1(combined))
+        # Detect if signals are continuous (1D) or discrete (one-hot)
+        is_continuous = signal.size(1) == 1 and next_signal.size(1) == 1
+            
+        # Forward pass based on input type
+        if is_continuous:
+            # For continuous signals
+            combined = torch.cat([
+                signal,            # 1D continuous signal
+                actions,
+                reward,
+                next_signal,       # 1D continuous next signal
+                current_latent
+            ], dim=1).to(self.device)
+            
+            # Use the network for continuous inputs
+            x = F.relu(self.fc1_continuous(combined))
+        else:
+            # For discrete (one-hot encoded) signals
+            combined = torch.cat([
+                signal,            # One-hot encoded signal
+                actions,
+                reward,
+                next_signal,       # One-hot encoded next signal
+                current_latent
+            ], dim=1).to(self.device)
+            
+            # Use the network for discrete inputs
+            x = F.relu(self.fc1_discrete(combined))
+        
+        # Shared forward pass for the rest of the network
         x = F.relu(self.fc2(x))
         mean = self.fc_mean(x)
         logvar = self.fc_logvar(x)
@@ -338,10 +404,19 @@ class ContinuousPolicyNetwork(nn.Module):
         self.action_dim = action_dim
         self.min_action = min_action
         self.max_action = max_action
+        self.belief_dim = belief_dim
+        self.latent_dim = latent_dim
         
-        # Combined input: belief only (not using latent)
-        # Note: For the strategic experimentation task, we're only using belief state
-        input_dim = belief_dim
+        # Support both continuous and discrete belief representations
+        # For continuous case, belief dimension will be the hidden dimension from transformer
+        # For discrete case, belief dimension will be the transformer's hidden dimension
+        
+        # In either case, we can use the same network since the belief processor
+        # produces a fixed-dimension belief representation regardless of input type
+        
+        # Combined input: belief and latent state
+        # For strategic experimentation, we can use both belief and latent if available
+        input_dim = belief_dim + latent_dim
         
         # Policy network layers
         self.fc1 = nn.Linear(input_dim, hidden_dim)
@@ -368,8 +443,18 @@ class ContinuousPolicyNetwork(nn.Module):
         if belief.dim() == 1:  # [belief_dim]
             belief = belief.unsqueeze(0)  # Add batch dimension
             
-        # Forward pass using only belief state
-        combined = belief
+        # Same for latent
+        if latent.dim() == 3:  # [seq_len, batch_size, latent_dim]
+            latent = latent.squeeze(0)
+        if latent.dim() == 1:  # [latent_dim]
+            latent = latent.unsqueeze(0)
+            
+        # Ensure all inputs are on the correct device
+        belief = belief.to(self.device)
+        latent = latent.to(self.device)
+        
+        # Combine belief and latent states
+        combined = torch.cat([belief, latent], dim=1)
         
         # Forward pass
         x = F.relu(self.fc1(combined))
@@ -389,6 +474,11 @@ class ContinuousPolicyNetwork(nn.Module):
     
     def sample_action(self, belief, latent):
         """Sample an action from the policy distribution."""
+        # Ensure both belief and latent are properly formatted
+        belief = belief.to(self.device)
+        latent = latent.to(self.device)
+        
+        # Get distribution parameters
         mean, log_std = self.forward(belief, latent)
         std = log_std.exp()
         
@@ -396,7 +486,7 @@ class ContinuousPolicyNetwork(nn.Module):
         normal = torch.distributions.Normal(mean, std)
         x_t = normal.rsample()  # Reparameterization trick
         
-        # Apply tanh squashing to ensure actions are bounded
+        # Apply clipping to ensure actions are bounded
         action = torch.clamp(x_t, self.min_action, self.max_action)
         
         # Calculate log probability
@@ -462,16 +552,33 @@ class TemporalGNN(nn.Module):
         self.temporal_window_size = temporal_window_size
         self.num_attn_heads = num_attn_heads
         
-        # Input dimensions
-        self.node_feat_dim = num_belief_states + action_dim  # belief state + action
+        # Support for both continuous and discrete signals
+        # For continuous signals, the node feature dimension is 1 + action_dim
+        # For discrete signals, the node feature dimension is num_belief_states + action_dim
+        self.continuous_node_feat_dim = 1 + action_dim  # continuous signal + action
+        self.discrete_node_feat_dim = num_belief_states + action_dim  # belief state + action
         
-        # Graph layers (using Graph Attention Networks)
-        self.gnn_layers = nn.ModuleList()
-        self.gnn_layers.append(GATConv(self.node_feat_dim, hidden_dim, heads=num_attn_heads, dropout=dropout))
+        # Track which node feature dimension is being used
+        self.is_using_continuous = False
         
-        # Additional GNN layers
+        # Create separate GNN layers for continuous and discrete signals
+        # Graph layers for discrete signals (using Graph Attention Networks)
+        self.discrete_gnn_layers = nn.ModuleList()
+        self.discrete_gnn_layers.append(GATConv(self.discrete_node_feat_dim, hidden_dim, heads=num_attn_heads, dropout=dropout))
+        
+        # Additional GNN layers for discrete signals
         for i in range(num_gnn_layers - 1):
-            self.gnn_layers.append(
+            self.discrete_gnn_layers.append(
+                GATConv(hidden_dim * num_attn_heads, hidden_dim, heads=num_attn_heads, dropout=dropout)
+            )
+            
+        # Graph layers for continuous signals (using Graph Attention Networks)
+        self.continuous_gnn_layers = nn.ModuleList()
+        self.continuous_gnn_layers.append(GATConv(self.continuous_node_feat_dim, hidden_dim, heads=num_attn_heads, dropout=dropout))
+        
+        # Additional GNN layers for continuous signals
+        for i in range(num_gnn_layers - 1):
+            self.continuous_gnn_layers.append(
                 GATConv(hidden_dim * num_attn_heads, hidden_dim, heads=num_attn_heads, dropout=dropout)
             )
         
@@ -511,7 +618,15 @@ class TemporalGNN(nn.Module):
     
     def _init_parameters(self):
         """Initialize network parameters."""
-        for layer in self.gnn_layers:
+        # Initialize discrete GNN layers
+        for layer in self.discrete_gnn_layers:
+            if hasattr(layer, 'lin'):
+                nn.init.xavier_normal_(layer.lin.weight)
+            if hasattr(layer, 'att'):
+                nn.init.xavier_normal_(layer.att)
+                
+        # Initialize continuous GNN layers
+        for layer in self.continuous_gnn_layers:
             if hasattr(layer, 'lin'):
                 nn.init.xavier_normal_(layer.lin.weight)
             if hasattr(layer, 'att'):
@@ -533,20 +648,27 @@ class TemporalGNN(nn.Module):
         Construct a graph from signals and neighbor actions.
         
         Args:
-            signals: Tensor of shape [batch_size, num_belief_states]
+            signals: Tensor of shape [batch_size, num_belief_states] or [batch_size, 1] for continuous signals
             neighbor_actions: Tensor of shape [batch_size, num_agents] or [batch_size, num_agents * action_dim]
             agent_id: ID of the current agent
             
         Returns:
             node_features: Tensor of node features
             edge_index: Tensor of edge indices
+            is_continuous: Whether the signal is continuous
         """
         batch_size = signals.size(0)
         
-        # Check if we're using continuous or discrete actions based on neighbor_actions shape
-        using_continuous = neighbor_actions.size(1) == self.num_agents
+        # Check if signal is continuous (1D) or discrete (one-hot)
+        is_continuous_signal = signals.size(1) == 1
         
-        if using_continuous:
+        # Store this for later use
+        self.is_using_continuous = is_continuous_signal
+        
+        # Check if we're using continuous or discrete actions based on neighbor_actions shape
+        using_continuous_actions = neighbor_actions.size(1) == self.num_agents
+        
+        if using_continuous_actions:
             # Continuous actions format: [batch_size, num_agents]
             neighbor_actions_reshaped = neighbor_actions
         else:
@@ -561,28 +683,44 @@ class TemporalGNN(nn.Module):
         # Add the current agent's node first
         for b in range(batch_size):
             # Current agent's features: concatenate signal with its own action
-            if using_continuous:
+            if using_continuous_actions:
                 # For continuous case, we expand the single value to match dimensions
                 agent_action = torch.zeros(self.action_dim)
                 agent_action[0] = neighbor_actions_reshaped[b, agent_id]
             else:
                 agent_action = neighbor_actions_reshaped[b, agent_id]
+            
+            # Concatenate signal with action based on signal type
+            if is_continuous_signal:
+                # If signal is continuous, we need to make sure it's treated properly
+                # Convert to the right shape for concatenation
+                agent_signal = signals[b].view(-1)  # Make sure it's flattened
+                agent_features = torch.cat([agent_signal, agent_action], dim=-1)
+            else:
+                # Discrete signal case (one-hot encoded)
+                agent_features = torch.cat([signals[b], agent_action], dim=-1)
                 
-            agent_features = torch.cat([signals[b], agent_action], dim=-1)
             node_features.append(agent_features)
             
             # Add neighbor nodes
             for n in range(self.num_agents):
                 if n != agent_id:
                     # For neighbor agents: concatenate zeros (no belief) with actions
-                    if using_continuous:
+                    if using_continuous_actions:
                         # For continuous case, expand the single value
                         neighbor_action = torch.zeros(self.action_dim)
                         neighbor_action[0] = neighbor_actions_reshaped[b, n]
                     else:
                         neighbor_action = neighbor_actions_reshaped[b, n]
+                    
+                    # Create zero belief for neighbors based on signal type
+                    if is_continuous_signal:
+                        # For continuous signal, just use zeros of the same shape
+                        neighbor_belief = torch.zeros_like(signals[b])
+                    else:
+                        # For discrete signal, use zero one-hot encoding
+                        neighbor_belief = torch.zeros_like(signals[b])
                         
-                    neighbor_belief = torch.zeros_like(signals[b])  # We don't know their beliefs directly
                     neighbor_features = torch.cat([neighbor_belief, neighbor_action], dim=-1)
                     node_features.append(neighbor_features)
         
@@ -603,7 +741,7 @@ class TemporalGNN(nn.Module):
         # Convert to tensor
         edge_index = torch.tensor(edge_indices, dtype=torch.long).t().contiguous().to(self.device)
         
-        return node_features, edge_index
+        return node_features, edge_index, is_continuous_signal
     
     def _update_temporal_memory(self, node_features, edge_index):
         """Update temporal memory with new graph data."""
@@ -633,10 +771,17 @@ class TemporalGNN(nn.Module):
         """Apply GNN layers to node features."""
         x = node_features
         
-        # Apply GNN layers
-        for layer in self.gnn_layers:
-            x = layer(x, edge_index)
-            x = F.relu(x)
+        # Apply GNN layers based on signal type
+        if self.is_using_continuous:
+            # Use continuous GNN layers
+            for layer in self.continuous_gnn_layers:
+                x = layer(x, edge_index)
+                x = F.relu(x)
+        else:
+            # Use discrete GNN layers
+            for layer in self.discrete_gnn_layers:
+                x = layer(x, edge_index)
+                x = F.relu(x)
             
         return x
     
@@ -655,6 +800,8 @@ class TemporalGNN(nn.Module):
         for i in range(len(self.temporal_memory['node_features'])):
             node_feats = self.temporal_memory['node_features'][i]
             edge_idx = self.temporal_memory['edge_indices'][i]
+            
+            # Apply GNN to get node embeddings
             gnn_output = self._apply_gnn(node_feats, edge_idx)
             
             # Extract only the ego agent's node representation (first node of each batch)
@@ -717,10 +864,10 @@ class TemporalGNN(nn.Module):
         Forward pass through the Temporal GNN.
         
         Args:
-            signal: Current signal/observation
-            neighbor_actions: Actions of all agents
+            signal: Current signal/observation (can be continuous or discrete)
+            neighbor_actions: Actions of all agents (can be continuous or discrete)
             reward: Reward received
-            next_signal: Next signal/observation
+            next_signal: Next signal/observation (can be continuous or discrete)
             current_latent: Current latent state (optional)
             
         Returns:
@@ -749,8 +896,11 @@ class TemporalGNN(nn.Module):
         reward = reward.to(self.device)
         next_signal = next_signal.to(self.device)
         
+        # Detect if we're using continuous signals
+        is_continuous_signal = signal.size(1) == 1
+        
         # Construct graph from current observation and actions
-        node_features, edge_index = self._construct_graph(signal, neighbor_actions)
+        node_features, edge_index, is_continuous = self._construct_graph(signal, neighbor_actions)
         
         # Update temporal memory
         self._update_temporal_memory(node_features, edge_index)
@@ -764,7 +914,7 @@ class TemporalGNN(nn.Module):
         
         # Calculate belief distribution
         logits = self.belief_head(gnn_output)
-        temperature = 1  # Temperature for softmax
+        temperature = 0.5  # Temperature for softmax
         belief_distribution = F.softmax(logits/temperature, dim=-1)
         
         return mean, logvar, belief_distribution
@@ -774,7 +924,7 @@ class TemporalGNN(nn.Module):
         Predict neighbor actions based on current signal and latent state.
         
         Args:
-            signal: Current signal/observation
+            signal: Current signal/observation (can be continuous or discrete)
             latent: Current latent state
             
         Returns:
@@ -795,11 +945,15 @@ class TemporalGNN(nn.Module):
         signal = signal.to(self.device)
         latent = latent.to(self.device)
         
+        # Detect if signal is continuous (1D) or discrete (one-hot)
+        is_continuous_signal = signal.size(1) == 1
+        self.is_using_continuous = is_continuous_signal
+        
         # Construct a dummy graph with just the signal
         # We'll use zeros for neighbor actions since we're trying to predict them
         batch_size = signal.size(0)
         dummy_actions = torch.zeros(batch_size, self.num_agents * self.action_dim, device=self.device)
-        node_features, edge_index = self._construct_graph(signal, dummy_actions)
+        node_features, edge_index, _ = self._construct_graph(signal, dummy_actions)
         
         # Process through GNN
         gnn_output = self._apply_gnn(node_features, edge_index)

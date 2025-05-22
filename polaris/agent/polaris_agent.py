@@ -74,7 +74,10 @@ class POLARISAgent:
             hidden_dim=belief_dim,
             action_dim=action_dim,
             device=device,
-            num_belief_states=num_states
+            num_belief_states=num_states,
+            nhead=4,
+            num_layers=2,
+            dropout=0.1
         ).to(device)
         
         # Create inference module (GNN or traditional encoder-decoder)
@@ -284,11 +287,10 @@ class POLARISAgent:
         is_first_obs = (self.episode_step == 0)
         self.episode_step += 1
 
-        # Pass observation and belief to the belief processor
+        # Pass only signal and belief to the belief processor (ignoring neighbor_actions)
         belief, belief_distribution = self.belief_processor(
             signal,
-            neighbor_actions, 
-            self.current_belief
+            current_belief=self.current_belief
         )
         
         # Store belief state with consistent shape [1, batch_size=1, hidden_dim]
@@ -299,6 +301,50 @@ class POLARISAgent:
         
         return self.current_belief, self.current_belief_distribution
         
+    def infer_latent(self, signal, neighbor_actions, reward, next_signal):
+        """Infer latent state of neighbors based on our observations which already contain neighbor actions."""
+
+        if self.use_gnn:
+            # Use the GNN for inference
+            mean, logvar, opponent_belief_distribution = self.inference_module(
+                signal,
+                neighbor_actions,
+                reward,
+                next_signal,
+                self.current_latent
+            )
+        else:
+            # Use the traditional encoder
+            mean, logvar, opponent_belief_distribution = self.encoder(
+                signal,
+                neighbor_actions,
+                reward,
+                next_signal,
+                self.current_latent
+            )
+        
+        # Sample based on reparameterized distribution 
+        # Ref: https://github.com/kampta/pytorch-distributions/blob/master/gaussian_vae.py
+        # Add numerical stability safeguards
+        # First, clamp logvar to prevent extreme values
+        logvar = torch.clamp(logvar, min=-20.0, max=2.0)
+        
+        # Then calculate variance with better safety measures
+        var = torch.exp(0.5 * logvar)
+        epsilon = 1e-6
+        var = torch.clamp(var, min=epsilon, max=1e6)  # Also add maximum bound
+        distribution = torch.distributions.Normal(mean, var)
+        new_latent = distribution.rsample()
+            
+        # Store the current latent, mean, logvar, and opponent belief distribution
+        self.current_latent = new_latent.unsqueeze(0)
+        self.current_mean = mean
+        self.current_logvar = logvar
+        self.current_opponent_belief_distribution = opponent_belief_distribution
+        
+        return new_latent
+    
+ 
     def store_transition(self, observation, belief, latent, action, reward, 
                          next_observation, next_belief, next_latent, mean=None, logvar=None, neighbor_actions=None):
         """Store a transition in the replay buffer."""
@@ -363,52 +409,6 @@ class POLARISAgent:
         # If using GNN, reset its temporal memory
         if self.use_gnn:
             self.inference_module.reset_memory()
-    
-    def infer_latent(self, signal, neighbor_actions, reward, next_signal):
-        """Infer latent state of neighbors based on our observations which already contain neighbor actions."""
-
-        # Convert reward to tensor
-        reward_tensor = torch.tensor([[reward]], dtype=torch.float32).to(self.device).squeeze(1)
-
-        if self.use_gnn:
-            # Use the GNN for inference
-            mean, logvar, opponent_belief_distribution = self.inference_module(
-                signal,
-                neighbor_actions,
-                reward_tensor,
-                next_signal,
-                self.current_latent
-            )
-        else:
-            # Use the traditional encoder
-            mean, logvar, opponent_belief_distribution = self.encoder(
-                signal,
-                neighbor_actions,
-                reward_tensor,
-                next_signal,
-                self.current_latent
-            )
-        
-        # Sample based on reparameterized distribution 
-        # Ref: https://github.com/kampta/pytorch-distributions/blob/master/gaussian_vae.py
-        # Add numerical stability safeguards
-        # First, clamp logvar to prevent extreme values
-        logvar = torch.clamp(logvar, min=-20.0, max=2.0)
-        
-        # Then calculate variance with better safety measures
-        var = torch.exp(0.5 * logvar)
-        epsilon = 1e-6
-        var = torch.clamp(var, min=epsilon, max=1e6)  # Also add maximum bound
-        distribution = torch.distributions.Normal(mean, var)
-        new_latent = distribution.rsample()
-            
-        # Store the current latent, mean, logvar, and opponent belief distribution
-        self.current_latent = new_latent.unsqueeze(0)
-        self.current_mean = mean
-        self.current_logvar = logvar
-        self.current_opponent_belief_distribution = opponent_belief_distribution
-        
-        return new_latent
     
     def select_action(self):
         """Select action based on current belief and latent."""
@@ -823,26 +823,32 @@ class POLARISAgent:
         
         Args:
             signals: Current signals/observations
-            neighbor_actions: Current neighbor actions
+            neighbor_actions: Current neighbor actions (ignored in signal-only mode)
             beliefs: Current belief states
-            latents: Current latent states
-            actions: Actions taken
             next_signals: Next signals/observations
         
         Returns:
             float: Loss value
         """
-        # Process current signals and neighbor actions through Transformer to get next belief
+        # Process current signals through Transformer to get next belief (ignoring neighbor_actions)
         _, belief_distributions = self.belief_processor(
-            signals, neighbor_actions, beliefs
+            signals, current_belief=beliefs
         )
         
+        # Detect if signal is continuous (1-dimensional) or discrete (one-hot encoded)
+        is_continuous_signal = next_signals.size(1) == 1
+        
         # The belief distribution should predict the next observation (signal)
-        # Log likelihood of next signal given current belief
-        # Use belief distribution as prediction of next signal
-        transformer_loss = F.binary_cross_entropy(
-            belief_distributions, next_signals, reduction='none'
-        ).sum(dim=1).mean()
+        if is_continuous_signal:
+            # For continuous signals, we use MSE loss directly on the raw values
+            transformer_loss = F.mse_loss(
+                belief_distributions, next_signals, reduction='mean'
+            )
+        else:
+            # For discrete signals, use binary cross entropy
+            transformer_loss = F.binary_cross_entropy(
+                belief_distributions, next_signals, reduction='none'
+            ).sum(dim=1).mean()
         
         # Add SI loss if enabled
         si_loss = 0.0

@@ -1110,7 +1110,7 @@ def plot_policy_cutoff_vs_belief(metrics, output_dir, use_latex=False):
                 print(f"Agent {agent_id} belief at time {t}: {belief_good} allocation: {alloc}")
 
         # Scatter plot of (belief, allocation) pairs
-        plt.scatter(beliefs, allocations, label=f'Agent {agent_id}', alpha=0.5, s=15)
+        plt.scatter(beliefs, allocations, label=f'Agent {int(agent_id)}', alpha=0.5, s=15)
 
         # Add regression line if enough points
         if len(beliefs) >= 2:
@@ -1121,7 +1121,7 @@ def plot_policy_cutoff_vs_belief(metrics, output_dir, use_latex=False):
                 coeffs = np.polyfit(x, y, 1)
                 reg_x = np.linspace(np.min(x), np.max(x), 100)
                 reg_y = np.polyval(coeffs, reg_x)
-                plt.plot(reg_x, reg_y, linestyle='--', linewidth=2, label=f'Regression Agent {agent_id}')
+                plt.plot(reg_x, reg_y, linestyle='--', linewidth=2, label=f'Regression Agent {int(agent_id)}')
 
     plt.xlabel("Belief in Good State")
     plt.ylabel("Allocation to Risky Arm")
@@ -1143,6 +1143,8 @@ def plot_good_belief_over_time(metrics, output_dir, use_latex=False):
     import matplotlib.pyplot as plt
     import numpy as np
     import torch
+    import math
+    from pathlib import Path
 
     # Try to use agent_beliefs if available, otherwise fallback to belief_distributions
     if 'agent_beliefs' in metrics:
@@ -1156,10 +1158,19 @@ def plot_good_belief_over_time(metrics, output_dir, use_latex=False):
     # Try to infer the 'good' state index (default to 1, fallback to 0 if only 1 state)
     good_state_index = 1
 
-    plt.figure(figsize=(8, 4))
+    plt.figure(figsize=(5, 3))
+
+    if use_latex:
+        set_latex_style()
+        
     for agent_id in agent_beliefs:
         good_beliefs = []
+        time_steps = []
         for t, belief in enumerate(agent_beliefs[agent_id]):
+            # Skip NaN values in the plot
+            if belief is None or (isinstance(belief, float) and math.isnan(belief)):
+                continue
+                
             if use_direct:
                 good_belief = belief
             else:
@@ -1171,8 +1182,18 @@ def plot_good_belief_over_time(metrics, output_dir, use_latex=False):
                         good_belief = float(good_belief.squeeze())
                     else:
                         good_belief = float(good_belief.flat[0])
+            
+            # Skip any remaining NaN values after processing
+            if isinstance(good_belief, float) and math.isnan(good_belief):
+                continue
+                
             good_beliefs.append(good_belief)
-        plt.plot(good_beliefs, label=f'Agent {agent_id}')
+            time_steps.append(t)
+            
+        if good_beliefs:  # Only plot if we have valid beliefs
+            # Convert agent_id to string first to ensure consistent type
+            agent_id_str = str(agent_id)
+            plt.plot(time_steps, good_beliefs, label=f'Agent {agent_id_str}')
 
     plt.xlabel("Time Step")
     plt.ylabel("Belief in Good State")
@@ -1181,5 +1202,13 @@ def plot_good_belief_over_time(metrics, output_dir, use_latex=False):
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(output_dir / 'good_belief_over_time.png', dpi=300)
+    
+    # Make sure output_dir is a Path object and create directory if needed
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save file with explicit path
+    save_path = output_dir / 'good_belief_over_time.png'
+    print(f"Saving belief plot to {save_path}")
+    plt.savefig(save_path, dpi=300)
     plt.close()

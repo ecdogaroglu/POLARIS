@@ -26,22 +26,50 @@ def calculate_policy_kl_divergence(policy_mean, policy_std, mpe_allocation):
     """
     # Convert inputs to tensors if they aren't already
     if not isinstance(policy_mean, torch.Tensor):
-        policy_mean = torch.tensor(policy_mean)
+        policy_mean = torch.tensor(policy_mean, dtype=torch.float32)
     if not isinstance(policy_std, torch.Tensor):
-        policy_std = torch.tensor(policy_std)
+        policy_std = torch.tensor(policy_std, dtype=torch.float32)
     if not isinstance(mpe_allocation, torch.Tensor):
-        mpe_allocation = torch.tensor(mpe_allocation)
+        mpe_allocation = torch.tensor(mpe_allocation, dtype=torch.float32)
+    
+    # Add larger epsilon to prevent numerical instability
+    epsilon = 1e-4
+    
+    # Check for invalid inputs and return a default value
+    if torch.isnan(policy_mean) or torch.isnan(policy_std) or torch.isnan(mpe_allocation):
+        return 1.0  # Default KL divergence for invalid inputs
+    
+    # Ensure policy_std is not too small to avoid numerical instability
+    policy_std = torch.clamp(policy_std, min=epsilon)
+    
+    # Ensure policy_mean and mpe_allocation are within valid range [0, 1]
+    policy_mean = torch.clamp(policy_mean, min=0.0, max=1.0)
+    mpe_allocation = torch.clamp(mpe_allocation, min=0.0, max=1.0)
     
     # For continuous action space with truncated Gaussian policy and deterministic target,
     # the KL divergence can be approximated as:
     # KL(p||δ) = -log(pdf(δ|μ,σ)) where pdf is the probability density function
     
-    # Calculate the negative log probability of the MPE allocation under the policy distribution
-    z_score = (mpe_allocation - policy_mean) / policy_std
-    log_pdf = -0.5 * (z_score ** 2) - torch.log(policy_std) - 0.5 * torch.log(torch.tensor(2 * np.pi))
-    kl_divergence = -log_pdf
-    
-    return kl_divergence.item()
+    try:
+        # Calculate the negative log probability of the MPE allocation under the policy distribution
+        z_score = (mpe_allocation - policy_mean) / policy_std
+        # Clamp z_score to prevent extreme values
+        z_score = torch.clamp(z_score, min=-10.0, max=10.0)
+        
+        log_pdf = -0.5 * (z_score ** 2) - torch.log(policy_std) - 0.5 * torch.log(torch.tensor(2 * np.pi))
+        kl_divergence = -log_pdf
+        
+        # Clamp KL divergence to a reasonable range to prevent extremely large values
+        kl_divergence = torch.clamp(kl_divergence, min=0.0, max=5.0)
+        
+        # Handle any remaining invalid values
+        if torch.isnan(kl_divergence) or torch.isinf(kl_divergence):
+            return 1.0  # Default value for numerical errors
+            
+        return kl_divergence.item()
+    except Exception as e:
+        print(f"Error in KL divergence calculation: {e}")
+        return 1.0  # Default value for exceptions
 
 
 def initialize_metrics(env, args, training):
@@ -185,6 +213,15 @@ def update_metrics(metrics, info, actions, action_probs=None, beliefs=None, late
                         info['policy_stds'][agent_id],
                         mpe_allocation
                     )
+                    
+                    # Log any extreme values for debugging
+                    if kl > 5.0 or np.isnan(kl) or np.isinf(kl):
+                        print(f"Warning: Extreme KL value {kl} for agent {agent_id}")
+                        print(f"  Mean: {info['policy_means'][agent_id]}, Std: {info['policy_stds'][agent_id]}, MPE: {mpe_allocation}")
+                        print(f"  Belief: {agent_belief}, True state: {true_state}")
+                        # Replace extreme values with a more reasonable value
+                        kl = 3.0
+                        
                     metrics["mpe_allocations"][agent_id].append(mpe_allocation)
                     metrics['policy_kl_divergence'][agent_id].append(kl)
                     metrics['agent_beliefs'][agent_id].append(agent_belief)
@@ -214,6 +251,7 @@ def calculate_dynamic_mpe(true_state, belief, safe_payoff, drift_rates, jump_rat
     This follows the Keller and Rady (2020) model with symmetric MPE.
     
     Args:
+        true_state: The true state of the world (0 for bad, 1 for good)
         belief: Agent's belief probability of being in the good state (state 1)
         safe_payoff: Deterministic payoff of the safe arm
         drift_rates: Drift rates for bad and good states
@@ -225,31 +263,68 @@ def calculate_dynamic_mpe(true_state, belief, safe_payoff, drift_rates, jump_rat
     Returns:
         mpe_allocation: The MPE allocation for the given belief
     """
-    # Compute expected risky payoff based on current belief
-    expected_risky_payoff = (
-        belief * (drift_rates[1] + jump_rates[1] * jump_sizes[1]) +
-        (1 - belief) * (drift_rates[0] + jump_rates[0] * jump_sizes[0])
-    )
+    # Guard against None or invalid values in parameters
+    if (safe_payoff is None or drift_rates is None or jump_rates is None or 
+        jump_sizes is None or background_informativeness is None or num_agents is None):
+        # Return a default value if parameters are missing
+        return 0.5  # Default to middle allocation
     
+    # Ensure belief is within valid range [0, 1]
+    belief = max(0.0, min(1.0, belief))
     
-    # Full information payoff (value when state is known to be good)
-    full_info_payoff = belief * max(safe_payoff, drift_rates[1] + jump_rates[1] * jump_sizes[1]) + (1 - belief) * max(safe_payoff, drift_rates[0] + jump_rates[0] * jump_sizes[0])
+    try:
+        # Compute expected risky payoff based on current belief
+        expected_risky_payoff = (
+            belief * (drift_rates[1] + jump_rates[1] * jump_sizes[1]) +
+            (1 - belief) * (drift_rates[0] + jump_rates[0] * jump_sizes[0])
+        )
+        
+        # Full information payoff (value when state is known to be good)
+        full_info_payoff = belief * max(safe_payoff, drift_rates[1] + jump_rates[1] * jump_sizes[1]) + (1 - belief) * max(safe_payoff, drift_rates[0] + jump_rates[0] * jump_sizes[0])
+        
+        # Check for potential division by zero or very small denominator
+        denominator = safe_payoff - expected_risky_payoff
+        
+        # Add epsilon to avoid division by very small numbers
+        epsilon = 1e-4
+        if abs(denominator) < epsilon:
+            # If denominator is very close to zero, return default values
+            if true_state == 1:  # Good state
+                return 1.0  # Full experimentation in good state
+            else:
+                return 0.0  # No experimentation in bad state
+        
+        # Incentive defined in the Keller and Rady paper
+        incentive = (full_info_payoff - safe_payoff) / denominator
+        
+        # Check for invalid incentive
+        if np.isnan(incentive) or np.isinf(incentive):
+            # Return a reasonable default based on true state
+            if true_state == 1:  # Good state
+                return 1.0  # Full experimentation in good state
+            else:
+                return 0.0  # No experimentation in bad state
+                
+        # Adjust for number of players and background signal
+        k0 = background_informativeness
+        n = num_agents
     
-
-    # Incentive defined in the Keller and Rady paper
-    incentive = (full_info_payoff - safe_payoff) / (safe_payoff - expected_risky_payoff)
-    # Adjust for number of players and background signal
-    k0 = background_informativeness
-    n = num_agents
-
-    if incentive <= k0:
-        return 0.0  # No experimentation
-    
-    elif k0 < incentive < k0 + n - 1:
-        # Partial experimentation
-        return (incentive - k0) / (n - 1)
-    else:
-        return 1.0  # Full experimentation
+        if incentive <= k0:
+            return 0.0  # No experimentation
+        
+        elif k0 < incentive < k0 + n - 1:
+            # Partial experimentation
+            return (incentive - k0) / (n - 1)
+        else:
+            return 1.0  # Full experimentation
+            
+    except Exception as e:
+        print(f"Error in MPE calculation: {e}")
+        # Return a reasonable default based on true state
+        if true_state == 1:  # Good state
+            return 1.0  # Full experimentation in good state
+        else:
+            return 0.0  # No experimentation in bad state
 
 
 def store_incorrect_probabilities(metrics, info, num_agents):

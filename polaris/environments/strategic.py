@@ -104,6 +104,7 @@ class StrategicExperimentationEnvironment(BaseEnvironment):
         # Reset background signal
         self.last_background_signal = 0.0
         self.background_signal_history = [0.0]
+        self.last_background_increment = 0.0
         
         # Reset payoff histories
         self.payoff_histories = [[] for _ in range(self.num_agents)]
@@ -114,6 +115,7 @@ class StrategicExperimentationEnvironment(BaseEnvironment):
         for agent_id in range(self.num_agents):
             observations[agent_id] = {
                 'background_signal': 0.0,
+                'background_increment': 0.0,
                 'background_history': [0.0],
                 'neighbor_allocations': None,  # No allocations observed yet
                 'neighbor_payoffs': None,      # No payoffs observed yet
@@ -148,6 +150,8 @@ class StrategicExperimentationEnvironment(BaseEnvironment):
         background_increment = self._generate_background_signal()
         self.last_background_signal += background_increment
         self.background_signal_history.append(self.last_background_signal)
+        # Save the increment for agent observations
+        self.last_background_increment = background_increment
         
         # Compute rewards
         rewards = {}
@@ -177,6 +181,7 @@ class StrategicExperimentationEnvironment(BaseEnvironment):
             
             observations[agent_id] = {
                 'background_signal': self.last_background_signal,
+                'background_increment': self.last_background_increment,
                 'background_history': self.background_signal_history.copy(),
                 'neighbor_allocations': neighbor_allocations,
                 'neighbor_payoffs': neighbor_payoffs,
@@ -197,6 +202,7 @@ class StrategicExperimentationEnvironment(BaseEnvironment):
             'total_allocation': total_allocation,
             'allocations': self.allocations.copy(),
             'background_signal': self.last_background_signal,
+            'background_increment': self.last_background_increment,
         }
         
         return observations, rewards, done, info

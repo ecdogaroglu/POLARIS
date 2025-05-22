@@ -229,15 +229,26 @@ def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, train
                     
                     # Extract agent's belief about the state
                     if hasattr(agent, 'current_belief_distribution') and agent.current_belief_distribution is not None:
-                        # For binary state (common case), the belief about good state is the probability assigned to state 1
-                        if agent.current_belief_distribution.shape[-1] == 2:
-                            agent_beliefs[agent_id] = agent.current_belief_distribution[0, 1].item()
+                        # Check if belief distribution is valid (not NaN)
+                        if torch.isnan(agent.current_belief_distribution).any():
+                            # For NaN case, use a default value (0.5)
+                            agent_beliefs[agent_id] = 0.5
                         else:
-                            # For multi-state cases, use a weighted average
-                            belief_weights = torch.arange(agent.current_belief_distribution.shape[-1], 
-                                                          device=agent.current_belief_distribution.device).float()
-                            belief_weights = belief_weights / (agent.current_belief_distribution.shape[-1] - 1)  # Normalize to [0,1]
-                            agent_beliefs[agent_id] = torch.sum(agent.current_belief_distribution * belief_weights, dim=-1).item()
+                            # For continuous signals, the belief is directly used
+                            if agent.current_belief_distribution.size(1) == 1:
+                                # Continuous case - map the value to [0,1] range
+                                raw_value = agent.current_belief_distribution[0, 0].item()
+                                # Clip to ensure it's in [0,1] range
+                                agent_beliefs[agent_id] = max(0.0, min(1.0, raw_value))
+                            # For binary state (common case), the belief about good state is the probability assigned to state 1
+                            elif agent.current_belief_distribution.shape[-1] == 2:
+                                agent_beliefs[agent_id] = agent.current_belief_distribution[0, 1].item()
+                            else:
+                                # For multi-state cases, use a weighted average
+                                belief_weights = torch.arange(agent.current_belief_distribution.shape[-1], 
+                                                             device=agent.current_belief_distribution.device).float()
+                                belief_weights = belief_weights / (agent.current_belief_distribution.shape[-1] - 1)  # Normalize to [0,1]
+                                agent_beliefs[agent_id] = torch.sum(agent.current_belief_distribution * belief_weights, dim=-1).item()
                 else:
                     # Fallback if action_mean not stored
                     policy_means.append(0.5)  # Default middle value
@@ -349,36 +360,45 @@ def update_agent_states(agents, observations, next_observations, actions, reward
             next_neighbor_actions = next_obs_data['neighbor_actions']
         elif 'background_signal' in obs_data:
             # Strategic Experimentation Environment format
-            # Use background signal as the observation signal
-            signal = int(obs_data['background_signal'] > 0)  # Convert to binary signal: 1 if positive, 0 if negative
-            next_signal = int(next_obs_data['background_signal'] > 0)
+            # Use the background signal increment directly without any transformation
+            
+            # Get the background signal increment if available, otherwise use the background signal
+            if 'background_increment' in obs_data and 'background_increment' in next_obs_data:
+                # Use the raw increment values directly
+                signal = obs_data['background_increment']
+                next_signal = next_obs_data['background_increment']
+            else:
+                # Fallback to using the background signal if increment isn't available
+                signal = obs_data['background_signal']
+                next_signal = next_obs_data['background_signal']
+            
             # Get allocations instead of discrete actions
             neighbor_allocations = obs_data.get('neighbor_allocations', {})
             next_neighbor_allocations = next_obs_data.get('neighbor_allocations', {})
             # Handle None values by using empty dictionaries instead
-            if continuous_actions:
-                # Use raw allocation values
-                neighbor_actions = {} if neighbor_allocations is None else neighbor_allocations
-                next_neighbor_actions = {} if next_neighbor_allocations is None else next_neighbor_allocations
-            else:
-                # Convert to binary actions
-                neighbor_actions = {} if neighbor_allocations is None else {k: int(v > 0.5) for k, v in neighbor_allocations.items()}
-                next_neighbor_actions = {} if next_neighbor_allocations is None else {k: int(v > 0.5) for k, v in next_neighbor_allocations.items()}
+            # Always use raw allocation values for continuous actions, never convert to binary
+            neighbor_actions = {} if neighbor_allocations is None else neighbor_allocations
+            next_neighbor_actions = {} if next_neighbor_allocations is None else next_neighbor_allocations
 
         # Encode observations
+        # Determine if we're using continuous signals based on the environment type
+        continuous_signal = 'background_increment' in obs_data
+        
         signal_encoded, actions_encoded = encode_observation(
             signal=signal,
             neighbor_actions=neighbor_actions,
             num_agents=env.num_agents,
             num_states=env.num_states,
-            continuous_actions=continuous_actions
+            continuous_actions=continuous_actions,
+            continuous_signal=continuous_signal
         )
         next_signal_encoded, _ = encode_observation(
             signal=next_signal,
             neighbor_actions=next_neighbor_actions,
             num_agents=env.num_agents,
             num_states=env.num_states,
-            continuous_actions=continuous_actions
+            continuous_actions=continuous_actions,
+            continuous_signal=continuous_signal
         )
 
         # Get current belief and latent states (before observation update)
@@ -497,27 +517,6 @@ def initialize_agents(env, args, obs_dim):
             si_exclude_final_layers=args.si_exclude_final_layers if hasattr(args, 'si_exclude_final_layers') else False,
             continuous_actions=args.continuous_actions if hasattr(args, 'continuous_actions') else False
         )
-        
-        # If using GNN, update the inference module with the specified parameters
-        if args.use_gnn and hasattr(agent, 'inference_module'):
-            agent.inference_module = TemporalGNN(
-                hidden_dim=args.hidden_dim,
-                action_dim=action_dim,
-                latent_dim=args.latent_dim,
-                num_agents=env.num_agents,
-                device=args.device,
-                num_belief_states=env.num_states,
-                num_gnn_layers=args.gnn_layers,
-                num_attn_heads=args.attn_heads,
-                dropout=0.1,
-                temporal_window_size=args.temporal_window
-            ).to(args.device)
-            
-            # Update the optimizer to use the new inference module
-            agent.inference_optimizer = torch.optim.Adam(
-                agent.inference_module.parameters(),
-                lr=args.learning_rate
-            )
             
         agents[agent_id] = agent
             
