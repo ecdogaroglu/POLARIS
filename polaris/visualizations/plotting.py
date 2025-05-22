@@ -794,11 +794,20 @@ def plot_allocations(metrics, output_dir, use_latex=False):
     if 'allocations' not in metrics:
         print("No allocation data available for plotting")
         return
-        
+    
+    # Create figure with consistent dimensions
     plt.figure(figsize=(5, 3))
     
+    # Apply LaTeX style if requested
     if use_latex:
         set_latex_style()
+    
+    # Get axes object for formatting
+    ax = plt.gca()
+    
+    # Apply LaTeX formatting to axes if needed
+    if use_latex:
+        format_axis_in_latex_style(ax)
     
     # Get allocations for each agent
     allocations = metrics['allocations']
@@ -818,8 +827,13 @@ def plot_allocations(metrics, output_dir, use_latex=False):
         # Create x-axis (timesteps)
         timesteps = range(len(allocations_np))
         
-        # Plot
-        plt.plot(timesteps, allocations_np, label=f'Agent {agent_id}')
+        # Try to convert agent_id to int for consistent formatting
+        try:
+            agent_id_int = int(agent_id)
+            plt.plot(timesteps, allocations_np, label=f'Agent {agent_id_int}')
+        except (ValueError, TypeError):
+            # Fallback to original agent_id if conversion fails
+            plt.plot(timesteps, allocations_np, label=f'Agent {agent_id}')
     
     # Add MPE allocation lines if available
     if 'theoretical_bounds' in metrics and 'mpe_neutral' in metrics['theoretical_bounds']:
@@ -834,10 +848,11 @@ def plot_allocations(metrics, output_dir, use_latex=False):
     plt.ylim(0, 1)
     plt.legend()
     plt.grid(True, alpha=0.3)
+    plt.tight_layout()
     
-    # Save figure
+    # Save the figure properly based on LaTeX setting
     if use_latex:
-        save_figure_for_publication(output_dir / 'agent_allocations', extension='pdf')
+        save_figure_for_publication(output_dir / 'agent_allocations', formats=['pdf', 'png'])
     else:
         plt.savefig(output_dir / 'agent_allocations.png', dpi=300, bbox_inches='tight')
     
@@ -1097,7 +1112,20 @@ def plot_policy_cutoff_vs_belief(metrics, output_dir, use_latex=False):
 
     good_state_index = 1
 
+    # Create figure with consistent dimensions
     plt.figure(figsize=(5, 3))
+    
+    # Apply LaTeX style if requested
+    if use_latex:
+        set_latex_style()
+    
+    # Get axes object for formatting
+    ax = plt.gca()
+    
+    # Apply LaTeX formatting to axes if needed
+    if use_latex:
+        format_axis_in_latex_style(ax)
+        
     for agent_id in metrics['allocations']:
         beliefs = []
         allocations = []
@@ -1129,7 +1157,13 @@ def plot_policy_cutoff_vs_belief(metrics, output_dir, use_latex=False):
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(output_dir / 'policy_cutoff_vs_belief.png', dpi=300)
+    
+    # Save the figure properly based on LaTeX setting
+    if use_latex:
+        save_figure_for_publication(output_dir / 'policy_cutoff_vs_belief', formats=['pdf', 'png'])
+    else:
+        plt.savefig(output_dir / 'policy_cutoff_vs_belief.png', dpi=300, bbox_inches='tight')
+    
     plt.close()
 
 def plot_good_belief_over_time(metrics, output_dir, use_latex=False):
@@ -1158,11 +1192,20 @@ def plot_good_belief_over_time(metrics, output_dir, use_latex=False):
     # Try to infer the 'good' state index (default to 1, fallback to 0 if only 1 state)
     good_state_index = 1
 
+    # Create figure with consistent dimensions
     plt.figure(figsize=(5, 3))
 
+    # Apply LaTeX style if requested
     if use_latex:
         set_latex_style()
-        
+    
+    # Get axes object for formatting
+    ax = plt.gca()
+    
+    # Apply LaTeX formatting to axes if needed
+    if use_latex:
+        format_axis_in_latex_style(ax)
+
     for agent_id in agent_beliefs:
         good_beliefs = []
         time_steps = []
@@ -1191,9 +1234,14 @@ def plot_good_belief_over_time(metrics, output_dir, use_latex=False):
             time_steps.append(t)
             
         if good_beliefs:  # Only plot if we have valid beliefs
-            # Convert agent_id to string first to ensure consistent type
-            agent_id_str = str(agent_id)
-            plt.plot(time_steps, good_beliefs, label=f'Agent {agent_id_str}')
+            # Try to convert agent_id to int for consistent formatting with other plots
+            try:
+                agent_id_int = int(agent_id)
+                plt.plot(time_steps, good_beliefs, label=f'Agent {agent_id_int}')
+            except (ValueError, TypeError):
+                # Fallback to string if conversion fails
+                agent_id_str = str(agent_id)
+                plt.plot(time_steps, good_beliefs, label=f'Agent {agent_id_str}')
 
     plt.xlabel("Time Step")
     plt.ylabel("Belief in Good State")
@@ -1207,8 +1255,13 @@ def plot_good_belief_over_time(metrics, output_dir, use_latex=False):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Save file with explicit path
-    save_path = output_dir / 'good_belief_over_time.png'
-    print(f"Saving belief plot to {save_path}")
-    plt.savefig(save_path, dpi=300)
+    # Save the figure properly based on LaTeX setting
+    if use_latex:
+        save_figure_for_publication(output_dir / 'good_belief_over_time', formats=['pdf', 'png'])
+    else:
+        # Save file with explicit path
+        save_path = output_dir / 'good_belief_over_time.png'
+        print(f"Saving belief plot to {save_path}")
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    
     plt.close()
