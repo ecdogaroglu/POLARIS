@@ -249,11 +249,6 @@ def run_simulation(env, agents, replay_buffers, metrics, args, output_dir, train
                                                              device=agent.current_belief_distribution.device).float()
                                 belief_weights = belief_weights / (agent.current_belief_distribution.shape[-1] - 1)  # Normalize to [0,1]
                                 agent_beliefs[agent_id] = torch.sum(agent.current_belief_distribution * belief_weights, dim=-1).item()
-                else:
-                    # Fallback if action_mean not stored
-                    policy_means.append(0.5)  # Default middle value
-                    policy_stds.append(0.1)  # Default small std
-                    agent_beliefs[agent_id] = 0.5  # Default middle belief
         
         # Take environment step
         next_observations, rewards, done, info = env.step(actions, action_probs)

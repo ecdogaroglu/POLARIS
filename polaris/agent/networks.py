@@ -462,15 +462,17 @@ class ContinuousPolicyNetwork(nn.Module):
         
         # Extract mean and log_std
         mean = torch.sigmoid(self.mean_head(x))  # Sigmoid for [0,1] range
-        log_std = self.log_std_head(x)
-        
-        # Clamp log_std for numerical stability
-        log_std = torch.clamp(log_std, min=-20, max=2)
+        log_std = torch.sigmoid(self.log_std_head(x))
         
         # Scale mean to action range
         scaled_mean = self.min_action + (self.max_action - self.min_action) * mean
-        
-        return scaled_mean, log_std
+
+        # Scale log_std to a range
+        min_log_std = -3
+        max_log_std = 1
+        scaled_log_std = min_log_std + (max_log_std - min_log_std) * log_std
+
+        return scaled_mean, scaled_log_std
     
     def sample_action(self, belief, latent):
         """Sample an action from the policy distribution."""

@@ -43,7 +43,7 @@ def main():
     train_args.jump_sizes_list = [1.0, 1.0]
     train_args.num_agents = 2
     train_args.num_episodes = 1
-    train_args.horizon = 1000
+    train_args.horizon = 10000
     train_args.eval_only = False
     train_args.save_model = True
     train_args.use_gnn = True

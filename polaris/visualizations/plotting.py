@@ -92,6 +92,7 @@ def generate_plots(metrics, env, args, output_dir, training, episodic_metrics=No
             episode_length=args.horizon
         )
 
+
 def create_empty_plot(output_dir):
     """Create an empty plot with a message when no data is available."""
     plt.figure(figsize=(12, 8))
@@ -858,6 +859,7 @@ def plot_allocations(metrics, output_dir, use_latex=False):
     
     plt.close()
 
+
 def plot_kl_divergence(metrics, output_dir, use_latex=False):
     """
     Plot KL divergence between agent policies and the MPE over time.
@@ -883,10 +885,6 @@ def plot_kl_divergence(metrics, output_dir, use_latex=False):
     
     # Get KL divergence for each agent
     kl_divergences = metrics['policy_kl_divergence']
-    true_states = metrics.get('true_states', [])
-    
-    # Get number of agents and timesteps
-    num_agents = len(kl_divergences)
     
     # Plot KL divergence for each agent
     for agent_id, agent_kl in kl_divergences.items():
@@ -910,18 +908,10 @@ def plot_kl_divergence(metrics, output_dir, use_latex=False):
     plt.title('KL Divergence to MPE Policy Over Time')
     plt.xlabel('Time Steps')
     plt.ylabel('KL Divergence')
-    plt.yscale('log')  # Log scale for better visualization
     plt.legend()
     plt.grid(True, alpha=0.3)
-    
-    # Add indicator lines for convergence thresholds
-    plt.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, label='High divergence')
-    plt.axhline(y=0.1, color='gray', linestyle='--', alpha=0.5, label='Medium divergence')
-    plt.axhline(y=0.01, color='gray', linestyle='--', alpha=0.5, label='Low divergence')
-    
-    # Set y-axis limits
-    plt.ylim(bottom=0.001)  # Set minimum to avoid log scale issues
-    
+    plt.tight_layout()
+        
     # Format axis in LaTeX style
     format_axis_in_latex_style(ax)
     
@@ -932,6 +922,7 @@ def plot_kl_divergence(metrics, output_dir, use_latex=False):
         plt.savefig(output_dir / 'kl_divergence.png', dpi=300, bbox_inches='tight')
     
     plt.close()
+
 
 def plot_belief_states(metrics, agent_id, output_dir, use_latex=False):
     """
@@ -1017,6 +1008,7 @@ def plot_belief_states(metrics, agent_id, output_dir, use_latex=False):
         num_states = metrics.get('num_states', 2)  # Default to 2 if not available
         plot_belief_distributions(metrics, agent_id, num_states, output_dir, use_latex)
 
+
 def plot_latent_states(metrics, agent_id, output_dir, use_latex=False):
     """
     Plot latent states over time for a specific agent.
@@ -1095,6 +1087,7 @@ def plot_latent_states(metrics, agent_id, output_dir, use_latex=False):
     
     plt.close()
 
+
 def plot_policy_cutoff_vs_belief(metrics, output_dir, use_latex=False):
     """
     Plot agent allocation (policy) as a function of belief, to visualize cutoff beliefs.
@@ -1131,11 +1124,10 @@ def plot_policy_cutoff_vs_belief(metrics, output_dir, use_latex=False):
         allocations = []
         for t, alloc in enumerate(metrics['allocations'][agent_id]):
             # Get belief in 'good' state at time t
-            if t < len(metrics['agent_beliefs'][agent_id]):
+            if 100 <t and t < len(metrics['agent_beliefs'][agent_id]):
                 belief_good = metrics['agent_beliefs'][agent_id][t]
                 beliefs.append(belief_good)
                 allocations.append(alloc)
-                print(f"Agent {agent_id} belief at time {t}: {belief_good} allocation: {alloc}")
 
         # Scatter plot of (belief, allocation) pairs
         plt.scatter(beliefs, allocations, label=f'Agent {int(agent_id)}', alpha=0.5, s=15)
@@ -1165,6 +1157,7 @@ def plot_policy_cutoff_vs_belief(metrics, output_dir, use_latex=False):
         plt.savefig(output_dir / 'policy_cutoff_vs_belief.png', dpi=300, bbox_inches='tight')
     
     plt.close()
+
 
 def plot_good_belief_over_time(metrics, output_dir, use_latex=False):
     """
