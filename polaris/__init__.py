@@ -1,10 +1,11 @@
 """
 POLARIS: Partially Observable Learning with Active Reinforcement In Social Environments
 
-A theoretically-grounded multi-agent reinforcement learning framework for strategic social learning.
+A comprehensive multi-agent reinforcement learning framework for strategic social learning
+environments with theoretical foundations and practical implementations.
 """
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 __author__ = "Ege Can Doğaroğlu"
 __email__ = "ege.dogaroglu@example.com"
 __license__ = "MIT"
