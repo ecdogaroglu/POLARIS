@@ -28,13 +28,19 @@ class BasePlotter(ABC):
         """
         self.use_latex = use_latex
 
-        # Set up figure defaults
+        # Set up figure defaults for tighter plots
         self.fig_width = 8  # Width suitable for single-column journal format
         self.fig_height = self.fig_width * 0.618  # Golden ratio
+        
+        # Font sizes for better visibility
+        self.title_fontsize = 20  # Larger title font
+        self.label_fontsize = 16  # Larger axis label font
+        self.tick_fontsize = 12   # Larger tick font
+        self.legend_fontsize = 14 # Larger legend font
 
     def create_figure(self, figsize: Optional[tuple] = None) -> tuple:
         """
-        Create a figure with consistent styling.
+        Create a figure with consistent styling and tight layout.
 
         Args:
             figsize: Optional figure size (width, height)
@@ -45,10 +51,14 @@ class BasePlotter(ABC):
         if figsize is None:
             figsize = (self.fig_width, self.fig_height)
 
+        # Use constrained_layout for better automatic spacing
         fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
 
         if self.use_latex:
             format_axis_in_latex_style(ax)
+            
+        # Set consistent font sizes
+        ax.tick_params(labelsize=self.tick_fontsize)
 
         return fig, ax
 
@@ -129,6 +139,36 @@ class BasePlotter(ABC):
 
         save_path = output_dir / filename
         self.save_figure(fig, save_path)
+
+    def set_title(self, ax, title: str, fontsize: Optional[int] = None):
+        """
+        Set title with consistent larger font size.
+        
+        Args:
+            ax: Matplotlib axis object
+            title: Title text
+            fontsize: Optional font size override
+        """
+        if fontsize is None:
+            fontsize = self.title_fontsize
+        ax.set_title(title, fontsize=fontsize, fontweight='bold', pad=25)
+        
+    def set_labels(self, ax, xlabel: str = "", ylabel: str = "", fontsize: Optional[int] = None):
+        """
+        Set axis labels with consistent font size.
+        
+        Args:
+            ax: Matplotlib axis object
+            xlabel: X-axis label
+            ylabel: Y-axis label
+            fontsize: Optional font size override
+        """
+        if fontsize is None:
+            fontsize = self.label_fontsize
+        if xlabel:
+            ax.set_xlabel(xlabel, fontsize=fontsize, fontweight='bold', labelpad=10)
+        if ylabel:
+            ax.set_ylabel(ylabel, fontsize=fontsize, fontweight='bold', labelpad=10)
 
 
 class MultiAgentPlotter(BasePlotter):

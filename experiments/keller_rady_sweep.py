@@ -156,6 +156,15 @@ def main():
     
     args = parser.parse_args()
     
+    # Set font family to match POLARIS plotting system
+    plt.rcParams["font.family"] = "serif"
+    plt.rcParams["font.serif"] = [
+        "DejaVu Serif",
+        "Times New Roman", 
+        "Times",
+        "serif",
+    ]
+    
     print("=== Keller-Rady Strategic Experimentation Sweep ===")
     print(f"Agent counts: {args.agent_counts}")
     print(f"Episodes per configuration: {args.episodes}")
@@ -186,20 +195,24 @@ def main():
         all_cis[num_agents] = ci95
     
     # --- Plotting: cumulative time series with 95% CI ---
-    plt.figure(figsize=(5, 3))
+    plt.figure(figsize=(8, 5))  # Slightly larger figure
     
     for num_agents in args.agent_counts:
         mean_cum = all_results[num_agents]
         ci = all_cis[num_agents]
         
-        plt.plot(mean_cum, label=f"{num_agents} agents")
+        plt.plot(mean_cum, label=f"{num_agents} agents", linewidth=2.5)
         plt.fill_between(np.arange(len(mean_cum)), mean_cum - ci, mean_cum + ci, alpha=0.2)
     
-    plt.xlabel("Time Steps")
-    plt.ylabel("Average Cumulative Allocation")
-    plt.title("Average Cumulative Allocation per Agent")
-    plt.legend()
+    # Apply improved font sizes consistent with POLARIS plotting system (using serif fonts)
+    plt.xlabel("Time Steps", fontsize=16, fontweight='bold', labelpad=10, family='serif')
+    plt.ylabel("Average Cumulative Allocation", fontsize=16, fontweight='bold', labelpad=10, family='serif')
+    plt.title("Average Cumulative Allocation per Agent", fontsize=20, fontweight='bold', pad=25, family='serif')
+    plt.legend(fontsize=14)
     plt.grid(True, alpha=0.3)
+    plt.tick_params(labelsize=12)
+    
+    # Use constrained_layout for better spacing
     plt.tight_layout()
     
     plot_path = RESULTS_DIR / "average_cumulative_allocation_per_agent_over_time.png"

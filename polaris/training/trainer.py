@@ -35,7 +35,7 @@ from ..utils.metrics import (
     save_metrics_to_file,
     update_metrics,
 )
-from ..visualization import generate_plots
+from ..visualization import POLARISPlotter
 from .evaluator import Evaluator
 
 
@@ -62,6 +62,7 @@ class Trainer:
         self.metrics = None
         self.output_dir = None
         self.evaluator = None
+        self.plotter = POLARISPlotter(use_latex=self.args.use_tex if hasattr(self.args, "use_tex") else False)
 
     def run_agents(self, training=True, model_path=None):
         """
@@ -187,14 +188,13 @@ class Trainer:
         )
 
         # Generate plots with LaTeX style if requested
-        generate_plots(
+        self.plotter.generate_all_plots(
             combined_metrics,
             self.env,
             self.args,
             self.output_dir,
             training=False,
             episodic_metrics=episodic_metrics,
-            use_latex=self.args.use_tex if hasattr(self.args, "use_tex") else False,
         )
 
         return episodic_metrics, serializable_metrics
@@ -235,6 +235,7 @@ class Trainer:
         }
 
         save_metrics_to_file(serializable_metrics, self.output_dir, training=True)
+        
         save_metrics_to_file(
             episodic_serializable_metrics,
             self.output_dir,
@@ -244,16 +245,15 @@ class Trainer:
 
         if self.args.save_model:
             save_final_models(self.agents, self.output_dir)
-
+        
         # Generate plots with LaTeX style if requested
-        generate_plots(
+        self.plotter.generate_all_plots(
             combined_metrics,
             self.env,
             self.args,
             self.output_dir,
             training=True,
             episodic_metrics=episodic_metrics,
-            use_latex=self.args.use_tex if hasattr(self.args, "use_tex") else False,
         )
 
         return episodic_metrics, serializable_metrics
@@ -779,20 +779,3 @@ class Trainer:
         return self.evaluator.quick_evaluate(num_steps)
 
 
-# Backward compatibility function
-def run_agents(env, args, training=True, model_path=None):
-    """
-    Backward compatibility wrapper for the original function interface.
-
-    Args:
-        env: The social learning environment
-        args: Command-line arguments
-        training: Whether to train the agents (True) or just evaluate (False)
-        model_path: Path to load models from (optional)
-
-    Returns:
-        learning_rates: Dictionary of learning rates for each agent
-        serializable_metrics: Dictionary of metrics for JSON serialization
-    """
-    trainer = Trainer(env, args)
-    return trainer.run_agents(training=training, model_path=model_path)

@@ -86,43 +86,14 @@ class AllocationPlotter(MultiAgentPlotter):
                 label = f"Agent {agent_id}"
 
             ax.plot(
-                timesteps, allocations_np, label=label, color=agent_color, linewidth=1.5
+                timesteps, allocations_np, label=label, color=agent_color, linewidth=2.5
             )
 
-        # Add MPE allocation lines if available
-        if "theoretical_bounds" in metrics:
-            bounds = metrics["theoretical_bounds"]
-            if "mpe_neutral" in bounds:
-                ax.axhline(
-                    y=bounds["mpe_neutral"],
-                    color="k",
-                    linestyle="--",
-                    alpha=0.7,
-                    label="MPE (neutral)",
-                )
-            if "mpe_good_state" in bounds:
-                ax.axhline(
-                    y=bounds["mpe_good_state"],
-                    color="g",
-                    linestyle="--",
-                    alpha=0.7,
-                    label="MPE (good state)",
-                )
-            if "mpe_bad_state" in bounds:
-                ax.axhline(
-                    y=bounds["mpe_bad_state"],
-                    color="r",
-                    linestyle="--",
-                    alpha=0.7,
-                    label="MPE (bad state)",
-                )
-
         # Formatting
-        ax.set_title("Agent Resource Allocations Over Time")
-        ax.set_xlabel("Time Steps")
-        ax.set_ylabel("Allocation to Risky Arm")
+        self.set_title(ax, "Agent Resource Allocations Over Time")
+        self.set_labels(ax, "Time Steps", "Allocation to Risky Arm")
         ax.set_ylim(0, 1)
-        ax.legend()
+        ax.legend(fontsize=self.legend_fontsize)
         ax.grid(True, alpha=0.3)
 
         # Save figure
@@ -163,14 +134,13 @@ class AllocationPlotter(MultiAgentPlotter):
                 smoothed_kl,
                 label=f"Agent {agent_id}",
                 color=agent_color,
-                linewidth=1.5,
+                linewidth=2.5,
             )
 
         # Formatting
-        ax.set_title("KL Divergence to MPE Policy Over Time")
-        ax.set_xlabel("Time Steps")
-        ax.set_ylabel("KL Divergence")
-        ax.legend()
+        self.set_title(ax, "KL Divergence to MPE Policy Over Time")
+        self.set_labels(ax, "Time Steps", "KL Divergence")
+        ax.legend(fontsize=self.legend_fontsize)
         ax.grid(True, alpha=0.3)
 
         # Save figure
@@ -247,10 +217,9 @@ class AllocationPlotter(MultiAgentPlotter):
                     )
 
         # Formatting
-        ax.set_xlabel("Belief in Good State")
-        ax.set_ylabel("Allocation to Risky Arm")
-        ax.set_title("Policy Cutoff: Allocation vs. Belief")
-        ax.legend()
+        self.set_labels(ax, "Belief in Good State", "Allocation to Risky Arm")
+        self.set_title(ax, "Policy Cutoff: Allocation vs. Belief")
+        ax.legend(fontsize=self.legend_fontsize)
         ax.grid(True, alpha=0.3)
 
         # Save figure

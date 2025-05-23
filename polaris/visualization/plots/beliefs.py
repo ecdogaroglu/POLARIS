@@ -243,14 +243,14 @@ class BeliefPlotter(MultiAgentPlotter):
                     good_beliefs,
                     label=f"Agent {agent_id}",
                     color=agent_color,
+                    linewidth=2.5,
                 )
 
-        # Formatting
-        ax.set_xlabel("Time Step")
-        ax.set_ylabel("Belief in Good State")
-        ax.set_title("Belief in Good State Over Time")
+        # Formatting with new methods
+        self.set_labels(ax, "Time Step", "Belief in Good State")
+        self.set_title(ax, "Belief in Good State Over Time")
         ax.set_ylim(0, 1)
-        ax.legend()
+        ax.legend(fontsize=self.legend_fontsize)
         ax.grid(True, alpha=0.3)
 
         # Save figure
@@ -357,13 +357,10 @@ class BeliefPlotter(MultiAgentPlotter):
         )
 
         # Formatting
-        ax.set_title(
-            f"Agents' Belief in Wrong State (State {wrong_state}) Over Time\nTrue State: {true_state}"
-        )
-        ax.set_xlabel("Time Steps")
-        ax.set_ylabel(f"Belief in Wrong State (State {wrong_state})")
+        self.set_title(ax, f"Agents' Belief in Wrong State (State {wrong_state}) Over Time\nTrue State: {true_state}")
+        self.set_labels(ax, "Time Steps", f"Belief in Wrong State (State {wrong_state})")
         ax.set_ylim(0, 1.05)
-        ax.legend()
+        ax.legend(fontsize=self.legend_fontsize)
         ax.grid(True, alpha=0.3)
 
         # Save figure

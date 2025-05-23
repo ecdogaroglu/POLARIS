@@ -25,7 +25,6 @@ class POLARISPlotter:
             use_latex: Whether to use LaTeX styling for publication-quality plots
         """
         self.use_latex = use_latex
-
         if use_latex:
             from .styles.latex import set_latex_style
 
@@ -79,30 +78,3 @@ class POLARISPlotter:
 
         print("✅ Visualization plots generated successfully!")
 
-
-# Convenience function for backward compatibility
-def generate_plots(
-    metrics,
-    env,
-    args,
-    output_dir,
-    training=True,
-    episodic_metrics=None,
-    use_latex=False,
-):
-    """
-    Generate plots from experiment results (backward compatibility function).
-
-    Args:
-        metrics: Combined metrics dictionary
-        env: Environment object
-        args: Command-line arguments
-        output_dir: Directory to save plots
-        training: Whether this is training or evaluation
-        episodic_metrics: Optional dictionary of metrics for each episode
-        use_latex: Whether to use LaTeX styling for plots
-    """
-    plotter = POLARISPlotter(use_latex=use_latex)
-    plotter.generate_all_plots(
-        metrics, env, args, output_dir, training, episodic_metrics
-    )

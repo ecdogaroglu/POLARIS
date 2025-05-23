@@ -18,6 +18,7 @@ def set_latex_style(use_tex=False):
         use_tex: Whether to use actual LaTeX rendering (requires LaTeX installation).
                  If False, uses LaTeX-like styling without requiring LaTeX.
     """
+    print(use_tex)
     # Check if we can use LaTeX
     if use_tex:
         try:
@@ -50,7 +51,7 @@ def set_latex_style(use_tex=False):
         ]
 
     # Figure size and DPI
-    plt.rcParams["figure.figsize"] = (4, 3)  # Default figure size (4:3 aspect ratio)
+    plt.rcParams["figure.figsize"] = (5, 3)  # Default figure size (4:3 aspect ratio)
     plt.rcParams["figure.dpi"] = 300  # High resolution for publication
     plt.rcParams["savefig.dpi"] = 300  # High resolution for saved figures
     plt.rcParams["savefig.format"] = "png"  # PNG is default format (no PDF)
@@ -62,7 +63,7 @@ def set_latex_style(use_tex=False):
 
     # Font sizes
     plt.rcParams["font.size"] = 11
-    plt.rcParams["axes.titlesize"] = 12
+    plt.rcParams["axes.titlesize"] = 14
     plt.rcParams["axes.labelsize"] = 11
     plt.rcParams["xtick.labelsize"] = 10
     plt.rcParams["ytick.labelsize"] = 10
@@ -113,7 +114,7 @@ def set_latex_style(use_tex=False):
     plt.rcParams["axes.prop_cycle"] = cycler("color", colors)
 
     # Figure layout
-    plt.rcParams["figure.constrained_layout.use"] = True
+    plt.rcParams["figure.constrained_layout.use"] = False
     plt.rcParams["figure.autolayout"] = False
 
     return use_tex

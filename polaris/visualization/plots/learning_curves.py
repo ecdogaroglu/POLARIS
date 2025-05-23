@@ -168,10 +168,9 @@ class LearningCurvePlotter(MultiAgentPlotter):
         )
 
         # Formatting
-        ax.set_xlabel("Time Step")
-        ax.set_ylabel("Incorrect Action Probability")
-        ax.set_title(title)
-        ax.legend()
+        self.set_labels(ax, "Time Step", "Incorrect Action Probability")
+        self.set_title(ax, title)
+        ax.legend(fontsize=self.legend_fontsize)
         ax.grid(True, alpha=0.3)
 
         if save_path:
@@ -234,18 +233,17 @@ class LearningCurvePlotter(MultiAgentPlotter):
             # Plot the line
             if log_scale:
                 ax.semilogy(
-                    time_steps, probs, label=label, color=agent_color, linewidth=1.5
+                    time_steps, probs, label=label, color=agent_color, linewidth=2.5
                 )
             else:
                 ax.plot(
-                    time_steps, probs, label=label, color=agent_color, linewidth=1.5
+                    time_steps, probs, label=label, color=agent_color, linewidth=2.5
                 )
 
         # Formatting
-        ax.set_xlabel("Time Step")
-        ax.set_ylabel("Incorrect Action Probability")
-        ax.set_title(title)
-        ax.legend()
+        self.set_labels(ax, "Time Step", "Incorrect Action Probability")
+        self.set_title(ax, title)
+        ax.legend(fontsize=self.legend_fontsize)
         ax.grid(True, alpha=0.3)
 
         if save_path:
