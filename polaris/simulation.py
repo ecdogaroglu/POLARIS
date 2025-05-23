@@ -71,3 +71,44 @@ def run_experiment(env, config) -> Tuple[Dict, Dict]:
     
     return trainer.run_agents(training=training, model_path=model_path)
 
+
+def main():
+    """Main entry point for the polaris-simulate console script."""
+    from polaris.config.args import parse_args
+    from polaris.environments.social_learning import SocialLearningEnvironment
+    from polaris.environments.strategic_exp import StrategicExperimentationEnvironment
+    
+    # Parse command line arguments
+    args = parse_args()
+    
+    # Create environment based on type
+    if args.environment_type == 'brandl':
+        env = SocialLearningEnvironment(
+            num_agents=args.num_agents,
+            num_states=args.num_states,
+            network_type=getattr(args, 'network_type', 'complete'),
+            signal_accuracy=getattr(args, 'signal_accuracy', 0.75)
+        )
+    elif args.environment_type == 'strategic_experimentation':
+        env = StrategicExperimentationEnvironment(
+            num_agents=args.num_agents,
+            continuous_actions=getattr(args, 'continuous_actions', False),
+            safe_payoff=getattr(args, 'safe_payoff', 1.0)
+        )
+    else:
+        raise ValueError(f"Unknown environment type: {args.environment_type}")
+    
+    # Run experiment
+    try:
+        episodic_metrics, serializable_metrics = run_experiment(env, args)
+        print("Experiment completed successfully!")
+        print(f"Final metrics: {serializable_metrics}")
+        return 0
+    except Exception as e:
+        print(f"Experiment failed with error: {e}")
+        return 1
+
+
+if __name__ == "__main__":
+    exit(main())
+

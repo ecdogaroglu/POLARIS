@@ -125,16 +125,62 @@ polaris/
 
 ### Installation
 
+POLARIS can be installed in several ways:
+
+#### Option 1: Install from PyPI (Recommended for users)
+```bash
+# Install basic version
+pip install polaris-marl
+
+# Install with GNN support
+pip install polaris-marl[gnn]
+
+# Install with development tools
+pip install polaris-marl[dev]
+
+# Install everything
+pip install polaris-marl[all]
+```
+
+#### Option 2: Install from source (Recommended for developers)
 ```bash
 # Clone the repository
 git clone https://github.com/ecdogaroglu/polaris.git
 cd polaris
 
+# Install in development mode with all dependencies
+pip install -e .[all]
+
+# Or install basic version only
+pip install -e .
+```
+
+#### Option 3: Using conda
+```bash
+# Create a new environment
+conda create -n polaris python=3.9
+conda activate polaris
+
 # Install dependencies
-pip install -r requirements.txt
+conda install pytorch numpy matplotlib networkx scikit-learn tqdm scipy pandas seaborn
 
 # Install POLARIS
-pip install -e .
+pip install polaris-marl
+```
+
+### Command Line Interface
+
+After installation, you can use POLARIS directly from the command line:
+
+```bash
+# Run Brandl social learning experiment
+polaris-simulate --environment-type brandl --num-agents 5 --num-states 3
+
+# Run strategic experimentation
+polaris-simulate --environment-type strategic_experimentation --num-agents 4 --continuous-actions
+
+# Get help
+polaris-simulate --help
 ```
 
 ### Basic Usage
@@ -470,7 +516,6 @@ If you use POLARIS in your research, please cite:
   year={2022}
 }
 ```
-
 
 ---
 

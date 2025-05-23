@@ -27,6 +27,9 @@ var/
 # Virtual Environment
 venv/
 ENV/
+.venv/
+env/
+.env
 
 # IDE specific files
 .idea/
@@ -43,4 +46,44 @@ ENV/
 ehthumbs.db
 Thumbs.db
 
+# Package development
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Documentation
+docs/_build/
+docs/source/api/
+
+# Pre-commit
+.pre-commit-config.yaml.backup
+
+# Testing
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# GitHub Actions
+.github/workflows/*.log
+.github/workflows/artifacts/
+
+# LaTeX
 *.tex
+*.aux
+*.log
+*.out
+*.toc
+*.fdb_latexmk
+*.fls
+*.synctex.gz

@@ -1,0 +1,31 @@
+# Include the README and license
+include README.md
+include LICENSE
+
+# Include requirements files
+include requirements.txt
+include pyproject.toml
+
+# Include configuration files
+recursive-include polaris *.py
+recursive-include polaris *.yaml
+recursive-include polaris *.yml
+recursive-include polaris *.json
+
+# Include type stubs
+include polaris/py.typed
+
+# Exclude unnecessary files
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude *.so
+global-exclude .DS_Store
+global-exclude *.dylib
+
+# Exclude test and development files
+exclude .gitignore
+exclude .pre-commit-config.yaml
+recursive-exclude tests *
+recursive-exclude experiments *
+recursive-exclude results *
+recursive-exclude docs * 
