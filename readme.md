@@ -38,7 +38,6 @@ POLARIS introduces **Partially Observable Active Markov Games (POAMGs)**, extend
 - **🤝 Advanced Architectures**: Graph Neural Networks, Transformers, and Temporal Attention
 - **🔄 Continual Learning**: Synaptic Intelligence prevents catastrophic forgetting
 - **📊 Two Environments**: Brandl social learning and Keller-Rady strategic experimentation
-- **⚡ GPU Acceleration**: Optimized for CUDA/MPS/CPU
 
 ## 🚀 Quick Start
 
