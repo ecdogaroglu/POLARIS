@@ -23,7 +23,7 @@ def test_package_version():
         import polaris
         assert hasattr(polaris, '__version__')
         assert isinstance(polaris.__version__, str)
-        assert polaris.__version__ == "2.0.0"
+        assert polaris.__version__ == "2.0.1"
     except Exception as e:
         pytest.fail(f"Version test failed: {e}")
 
