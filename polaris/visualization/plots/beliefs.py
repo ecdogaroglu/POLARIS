@@ -145,7 +145,7 @@ class BeliefPlotter(MultiAgentPlotter):
         time_steps = np.arange(len(belief_values))
 
         # Create figure
-        fig, ax = self.create_figure(figsize=(10, 6))
+        fig, ax = self.create_figure()
 
         # Plot belief for each state
         colors = plt.cm.viridis(np.linspace(0, 1, num_states))
@@ -158,7 +158,7 @@ class BeliefPlotter(MultiAgentPlotter):
                 belief_values,
                 label=f"State 1 (Good)",
                 color=colors[1 % num_states],
-                linewidth=2,
+                linewidth=2.5,
             )
             # Plot complement for state 0
             ax.plot(
@@ -166,7 +166,7 @@ class BeliefPlotter(MultiAgentPlotter):
                 1 - belief_values,
                 label=f"State 0 (Bad)",
                 color=colors[0],
-                linewidth=2,
+                linewidth=2.5,
             )
         elif belief_values.shape[1] >= num_states:
             # Multiple dimensions - plot each state
@@ -176,7 +176,7 @@ class BeliefPlotter(MultiAgentPlotter):
                     belief_values[:, state],
                     label=f"State {state}",
                     color=colors[state],
-                    linewidth=2,
+                    linewidth=2.5,
                 )
         else:
             # Fallback: plot whatever dimensions we have
@@ -186,7 +186,7 @@ class BeliefPlotter(MultiAgentPlotter):
                     belief_values[:, state],
                     label=f"Dimension {state}",
                     color=colors[state % num_states],
-                    linewidth=2,
+                    linewidth=2.5,
                 )
 
         # Highlight true state changes if available
@@ -196,12 +196,11 @@ class BeliefPlotter(MultiAgentPlotter):
         # Add reference line at 0.5
         ax.axhline(y=0.5, color="gray", linestyle="--", alpha=0.5)
 
-        # Formatting
-        ax.set_title(f"Agent {agent_id} Belief Distribution Over Time")
-        ax.set_xlabel("Time Steps")
-        ax.set_ylabel("Probability")
+        # Formatting with standardized methods
+        self.set_title(ax, f"Agent {agent_id} Belief Distribution Over Time")
+        self.set_labels(ax, "Time Steps", "Probability")
         ax.set_ylim(0, 1.05)
-        ax.legend()
+        ax.legend(fontsize=self.legend_fontsize)
         ax.grid(True, alpha=0.3)
 
         # Save figure
@@ -288,7 +287,7 @@ class BeliefPlotter(MultiAgentPlotter):
         wrong_state = 1 - true_state
 
         # Create single figure
-        fig, ax = self.create_figure(figsize=(12, 8))
+        fig, ax = self.create_figure()
         colors = self.get_colors()
 
         # Track if any agent has valid data
@@ -344,21 +343,16 @@ class BeliefPlotter(MultiAgentPlotter):
                     belief_in_wrong_state,
                     label=f"Agent {agent_id}",
                     color=agent_color,
-                    linewidth=2,
+                    linewidth=2.5,
                 )
 
         if not has_data:
             print("No valid belief distribution data found for social learning plot.")
             return
 
-        # Add reference line at 0.5
-        ax.axhline(
-            y=0.5, color="gray", linestyle="--", alpha=0.5, label="Random Belief"
-        )
-
         # Formatting
-        self.set_title(ax, f"Agents' Belief in Wrong State (State {wrong_state}) Over Time\nTrue State: {true_state}")
-        self.set_labels(ax, "Time Steps", f"Belief in Wrong State (State {wrong_state})")
+        self.set_title(ax, f"Agents' Belief in Wrong State")
+        self.set_labels(ax, "Time Steps", f"Belief in Wrong State")
         ax.set_ylim(0, 1.05)
         ax.legend(fontsize=self.legend_fontsize)
         ax.grid(True, alpha=0.3)

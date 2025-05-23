@@ -48,7 +48,8 @@ def run_experiment(env, config) -> Tuple[Dict, Dict]:
         args.eval_only = config.eval_only
         args.plot_internal_states = config.plot_internal_states
         args.plot_allocations = config.plot_allocations
-        args.use_tex = getattr(config, "latex_style", False)
+        args.latex_style = getattr(config, "latex_style", False)
+        args.use_tex = getattr(config, "use_tex", False)
         args.save_model = config.save_model
         args.seed = config.environment.seed
 

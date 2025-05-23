@@ -17,18 +17,20 @@ class POLARISPlotter:
     comprehensive visualizations from experiment results.
     """
 
-    def __init__(self, use_latex: bool = False):
+    def __init__(self, use_latex: bool = False, use_tex: bool = False):
         """
         Initialize the POLARIS plotter.
 
         Args:
             use_latex: Whether to use LaTeX styling for publication-quality plots
+            use_tex: Whether to use actual LaTeX rendering (requires LaTeX installation)
         """
         self.use_latex = use_latex
+        self.use_tex = use_tex
         if use_latex:
             from .styles.latex import set_latex_style
 
-            set_latex_style()
+            set_latex_style(use_tex=use_tex)
 
         # Initialize specialized plotters
         self.learning_curves = LearningCurvePlotter(use_latex=use_latex)

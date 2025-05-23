@@ -62,7 +62,10 @@ class Trainer:
         self.metrics = None
         self.output_dir = None
         self.evaluator = None
-        self.plotter = POLARISPlotter(use_latex=self.args.use_tex if hasattr(self.args, "use_tex") else False)
+        self.plotter = POLARISPlotter(
+            use_latex=self.args.latex_style if hasattr(self.args, "latex_style") else False,
+            use_tex=self.args.use_tex if hasattr(self.args, "use_tex") else False
+        )
 
     def run_agents(self, training=True, model_path=None):
         """

@@ -42,7 +42,7 @@ def main():
     parser.add_argument('--use-si', action='store_true', help='Use Synaptic Intelligence')
     parser.add_argument('--si-importance', type=float, default=10.0, help='SI importance weight')
     parser.add_argument('--plot-states', action='store_true', default=True, help='Plot internal states')
-    parser.add_argument('--latex-style', action='store_true', help='Use LaTeX styling')
+    parser.add_argument('--latex-style', action='store_true', default=True, help='Use LaTeX styling')
     parser.add_argument('--device', type=str, default="cpu", choices=['cpu', 'mps', 'cuda'], 
                        help='Force specific device (cpu is default to avoid device switching issues)')
     args = parser.parse_args()
@@ -160,7 +160,7 @@ def create_brandl_config(args) -> ExperimentConfig:
         plot_internal_states=args.plot_states,
         plot_allocations=False,  # Not relevant for Brandl
         latex_style=args.latex_style,
-        use_tex=args.latex_style
+        use_tex=False  # Avoid LaTeX rendering issues with Unicode characters
     )
     
     return config

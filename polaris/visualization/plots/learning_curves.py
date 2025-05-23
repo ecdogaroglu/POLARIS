@@ -226,7 +226,7 @@ class LearningCurvePlotter(MultiAgentPlotter):
 
             # Create label
             if show_learning_rates and agent_id in learning_rates:
-                label = f"Agent {agent_id} (λ={learning_rates[agent_id]:.4f})"
+                label = f"Agent {agent_id} (r={learning_rates[agent_id]:.4f})"
             else:
                 label = f"Agent {agent_id}"
 

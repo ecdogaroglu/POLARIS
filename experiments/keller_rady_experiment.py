@@ -29,7 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run Keller-Rady Strategic Experimentation")
     parser.add_argument('--agents', type=int, default=2, help='Number of agents')
     parser.add_argument('--episodes', type=int, default=1, help='Number of episodes')
-    parser.add_argument('--horizon', type=int, default=10000, help='Steps per episode')
+    parser.add_argument('--horizon', type=int, default=1000, help='Steps per episode')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--output', type=str, default='results', help='Output directory')
     parser.add_argument('--eval', action='store_true', help='Evaluation mode')
@@ -167,7 +167,7 @@ def create_strategic_config(args) -> ExperimentConfig:
         plot_internal_states=args.plot_states,
         plot_allocations=args.plot_allocations,
         latex_style=args.latex_style,
-        use_tex=args.latex_style
+        use_tex=False  # Avoid LaTeX rendering issues, use LaTeX-like styling instead
     )
     
     return config

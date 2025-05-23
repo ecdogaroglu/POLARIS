@@ -25,7 +25,7 @@ from polaris.utils.device import get_best_device
 # --- CONFIGURABLE PARAMETERS ---
 AGENT_COUNTS = [2, 3, 4, 5, 6, 7, 8]
 EPISODES = 1  # Number of episodes to average over
-HORIZON = 400
+HORIZON = 100
 RESULTS_DIR = Path("results/strategic_experimentation/sweep_allocations")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
