@@ -350,7 +350,7 @@ experiment = ExperimentConfig(agent_config=agent_config)
 
 - **[API Reference](docs/api.md)**: Complete API documentation
 - **[Configuration Guide](docs/configuration.md)**: Configuration options
-- **[Research Paper](docs/papers.md)**: Relevant publications
+- **[Research Paper](docs/thesis.pdf)**: Relevant publications
 
 ## 🤝 Contributing
 
