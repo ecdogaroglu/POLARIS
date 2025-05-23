@@ -2,7 +2,7 @@
 Observation encoding utilities for POLARIS.
 """
 
-from typing import Dict, Union
+from typing import Dict, Union, Tuple
 
 import numpy as np
 import torch
@@ -15,7 +15,7 @@ def encode_observation(
     num_states: int,
     continuous_actions: bool = False,
     continuous_signal: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Encode the observation (signal + neighbor actions) into a fixed-size vector.
 
