@@ -8,15 +8,41 @@ __version__ = "2.0.0"
 __author__ = "Ege Can Doğaroğlu"
 __email__ = "ege.dogaroglu@example.com"
 __license__ = "MIT"
-__description__ = "POLARIS: Partially Observable Learning with Active Reinforcement In Social Environments"
+__description__ = (
+    "POLARIS: Partially Observable Learning with Active Reinforcement In Social Environments"
+)
 
-# Main imports for easy access
-from polaris.agents.polaris_agent import POLARISAgent
-from polaris.config.args import parse_args
-from polaris.config.defaults import get_default_config
-from polaris.environments.social_learning import SocialLearningEnvironment
-from polaris.environments.strategic_exp import StrategicExperimentationEnvironment
-from polaris.training.trainer import Trainer
+# Import only basic configuration functions that don't depend on complex dependencies
+try:
+    from polaris.config.args import parse_args
+except ImportError:
+    parse_args = None
+
+try:
+    from polaris.config.defaults import get_default_config
+except ImportError:
+    get_default_config = None
+
+# Try to import main components, but don't fail if dependencies are missing
+try:
+    from polaris.agents.polaris_agent import POLARISAgent
+except ImportError:
+    POLARISAgent = None
+
+try:
+    from polaris.environments.social_learning import SocialLearningEnvironment
+except ImportError:
+    SocialLearningEnvironment = None
+
+try:
+    from polaris.environments.strategic_exp import StrategicExperimentationEnvironment
+except ImportError:
+    StrategicExperimentationEnvironment = None
+
+try:
+    from polaris.training.trainer import Trainer
+except ImportError:
+    Trainer = None
 
 # Version info
 __all__ = [
