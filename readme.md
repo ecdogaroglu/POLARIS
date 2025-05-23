@@ -36,63 +36,32 @@ POLARIS introduces **Partially Observable Active Markov Games (POAMGs)**, a form
 
 ### 🔬 Core Theoretical Contributions
 
-#### **1. POAMGs Framework**
-We formalize social learning as a tuple $M_n = \langle I, S, \mathbf{A}, T, \mathbf{O}, \mathbf{R}, \mathbf{\Theta}, \mathbf{U} \rangle$ where:
-- $I = \{1, \ldots, n\}$ is the set of $n$ agents
-- $S$ is the state space (discrete and finite)
-- $\mathbf{A} = \times_{i \in I} A^i$ is the joint action space (**discrete** or **continuous**)
-- $T: S \times \mathbf{A} \mapsto \Delta(S)$ is the Markovian state transition function
-- $\mathbf{O} = \times_{i \in I} O^i$ is the joint observation function, with $O^i: S \times \Omega^i \mapsto \Delta(\Omega^i)$
-- $\mathbf{R} = \times_{i \in I} R^i$ is the joint reward function, with $R^i: S \times \mathbf{A} \mapsto \mathbb{R}$ (**observable** in strategic experimentation)
-- $\mathbf{\Theta} = \times_{i \in I} \Theta^i$ is the joint policy parameter space
-- $\mathbf{U} = \times_{i \in I} U^i$ is the joint policy update function space
+#### **POAMGs Framework**
+We formalize social learning as $M_n = \langle I, S, \mathbf{A}, T, \mathbf{O}, \mathbf{R}, \mathbf{\Theta}, \mathbf{U} \rangle$ where:
+- $I = \{1, \ldots, n\}$ agents, $S$ discrete state space, $\mathbf{A}$ joint action space (**discrete**/**continuous**)
+- $T: S \times \mathbf{A} \mapsto \Delta(S)$ state transitions, $\mathbf{O}$ observation functions
+- $\mathbf{R}: S \times \mathbf{A} \mapsto \mathbb{R}^n$ rewards (**observable** in strategic experimentation, **hidden** in social learning)
+- $\mathbf{\Theta}, \mathbf{U}$ policy parameters and update functions
 
-**Key Innovation:** Agents maintain **belief states** $b^i_t \in B^i$ about hidden world states, with policies defined as:
-$$\pi^i: B^i \times \Theta^i \mapsto \Delta(A^i)$$
+**Key Innovation:** Belief-conditioned policies $\pi^i: B^i \times \Theta^i \mapsto \Delta(A^i)$ with explicit policy evolution, supporting both discrete actions (Brandl) and continuous allocations $a^i_t \in [0,1]$ (strategic experimentation with Lévy processes).
 
-**Action Spaces:** POLARIS supports both **discrete** action spaces (for Brandl social learning) and **continuous** action spaces (for strategic experimentation with Lévy processes), with policies adapted accordingly.
+#### **Convergence & Policy Gradients**
+**Theorem:** Under regularity conditions, the joint process converges to unique stochastically stable distribution $\mu^*$.
 
-**Time Discretization:** For continuous-time dynamics, we employ time discretization with step size $\Delta t$ to make the framework computationally tractable while preserving essential dynamics.
-
-Unlike traditional frameworks that assume static policies or treat adaptation as noise, POAMGs incorporate policy evolution as an integral part of the environment dynamics, extending the Active Markov Game formulation of Kim et al. (2022) to handle partial observability.
-
-#### **2. Convergence Guarantees**
-**Theorem (Stochastically Stable Distribution):** Under mild regularity conditions, the joint process of states, beliefs, and policy parameters converges to a unique stochastically stable distribution $\mu^*$, ensuring well-defined limiting behavior despite non-stationary learning dynamics.
-
-This provides theoretical guarantees that social learning processes reach stable configurations regardless of initial conditions—a crucial property for long-term strategic planning.
-
-#### **3. Policy Gradient Theorems**
-We derive novel policy gradient theorems for both **average** and **discounted** reward criteria, providing flexibility for different modeling assumptions:
-
-**Average Reward Policy Gradient** (for continuing tasks without natural episodes):
-
+We derive policy gradients for **average reward** (continuing tasks) and **discounted reward** (time preferences):
 $$\nabla_{\theta^i} J^i(\theta^i) = \sum_{s,\mathbf{b},\mathbf{\Theta}} \mu(s,\mathbf{b},\mathbf{\Theta}) \sum_{a^i} \nabla_{\theta^i} \pi^i(a^i|b^i;\theta^i) \sum_{\mathbf{a}^{-i}} \pi^{-i}(\mathbf{a}^{-i}|\mathbf{b}^{-i};\theta^{-i}) q^i(s,\mathbf{b},\mathbf{\Theta},\mathbf{a})$$
 
-**Discounted Return Policy Gradient** (for agents with time preferences):
-$$\nabla_{\theta^i} J^{i}_{\gamma}(\theta^i) = \frac{1}{1-\gamma} \sum_{s,\mathbf{b},\mathbf{\Theta}} d^{\pi}(s,\mathbf{b},\mathbf{\Theta}) \sum_{a^i} \nabla_{\theta^i} \pi^i(a^i|b^i;\theta^i) q^i(s,\mathbf{b},\mathbf{\Theta},\mathbf{a})$$
+#### **Equilibrium & Learning Bounds**
+**Partially Observable Active Equilibrium:** Configuration $\mathbf{\Theta}^*$ where no agent can improve by unilateral strategy changes, accounting for partial observability and strategic adaptation.
 
-**Key Distinction:** The average reward formulation emphasizes long-term limiting behavior and is particularly suited for social learning where information value doesn't decay. The discounted formulation incorporates time preferences with discount factor $\gamma \in [0,1)$.
+**Learning Barriers:** Some agent's learning rate is bounded by signal informativeness:
+$$\min_i r^i(\sigma) \leq \min_{\theta \neq \theta'} \left[D_{KL}(\mu_\theta \| \mu_{\theta'}) + D_{KL}(\mu_{\theta'} \| \mu_\theta)\right]$$
 
-These theorems extend classical policy gradients to **belief-conditioned policies** in **non-stationary multi-agent environments**, providing the mathematical foundation for strategic learning algorithms.
-
-#### **4. Equilibrium Concepts**
-**Definition (Partially Observable Active Equilibrium):** A configuration $\mathbf{\Theta}^*$ where no agent can improve their long-term reward by unilaterally changing their policy or learning strategy, accounting for:
-- **Partial observability** through belief states
-- **Strategic adaptation** through policy evolution
-- **Long-term consequences** of influencing others' learning
-
-This equilibrium concept captures sophisticated strategic reasoning while remaining computationally tractable through policy gradient optimization.
-
-### 📈 Theoretical Insights
-
-Our framework reveals several fundamental insights about social learning:
-
-1. **Strategic Teaching**: Agents may choose seemingly suboptimal actions to influence others' beliefs and future behaviors
-2. **Information Revelation**: Strategic considerations affect how agents reveal private information through their actions  
-3. **Learning Barriers**: Even optimal social learning strategies face fundamental limits determined by signal informativeness
-4. **Network Effects**: Social network topology significantly influences both learning speed and strategic behavior
-
-These insights emerge from explicitly modeling how agents reason about and influence others' learning processes, building upon the active influence mechanisms introduced by Kim et al. (2022) but extended to settings with partial observability and belief-based decision making.
+### 📈 Key Insights
+1. **Strategic Teaching**: Agents influence others' beliefs through seemingly suboptimal actions
+2. **Information Revelation**: Strategic considerations affect private information sharing  
+3. **Network Effects**: Topology significantly impacts learning speed and strategic behavior
+4. **Time Discretization**: Continuous-time dynamics discretized with $\Delta t$ for computational tractability
 
 ## 🏗️ Architecture
 
@@ -477,6 +446,7 @@ If you use POLARIS in your research, please cite:
 
 <div align="center">
 
+**Built with ❤️ for the multi-agent learning community**
 
 [⭐ Star on GitHub](https://github.com/ecdogaroglu/polaris) • [🐛 Report Issues](https://github.com/ecdogaroglu/polaris/issues) • [💬 Discussions](https://github.com/ecdogaroglu/polaris/discussions)
 
