@@ -1,6 +1,7 @@
 # Ignore archive folder
 /archive/
 /results/
+experiments/results/
 
 # Python specific ignores
 __pycache__/
