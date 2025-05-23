@@ -21,7 +21,7 @@
 
 POLARIS is a multi-agent reinforcement learning framework for studying **strategic social learning**. It implements two canonical environments from economic theory and provides sophisticated neural architectures for modeling how agents learn from both private signals and social observations.
 
-### 🧮 Theoretical Foundation
+### Theoretical Foundation
 
 POLARIS introduces **Partially Observable Active Markov Games (POAMGs)**, extending traditional multi-agent frameworks to handle strategic learning under partial observability. Key theoretical contributions include:
 
@@ -31,13 +31,13 @@ POLARIS introduces **Partially Observable Active Markov Games (POAMGs)**, extend
 
 📖 **[Read the full theoretical treatment →](docs/thesis.pdf)**
 
-### 🏆 Key Features
+### Key Features
 
-- **🧠 Theoretical Foundation**: Based on Partially Observable Active Markov Games (POAMGs)
-- **🎮 Strategic Learning**: Agents influence others' learning processes under partial observability
-- **🤝 Advanced Architectures**: Graph Neural Networks, Transformers, and Temporal Attention
-- **🔄 Continual Learning**: Synaptic Intelligence prevents catastrophic forgetting
-- **📊 Two Environments**: Brandl social learning and Keller-Rady strategic experimentation
+- **Theoretical Foundation**: Based on Partially Observable Active Markov Games (POAMGs)
+- **Strategic Learning**: Agents influence others' learning processes under partial observability
+- **Advanced Architectures**: Graph Neural Networks, Transformers, and Temporal Attention
+- **Continual Learning**: Synaptic Intelligence prevents catastrophic forgetting
+- **Two Environments**: Brandl social learning and Keller-Rady strategic experimentation
 
 ## 🚀 Quick Start
 
@@ -100,7 +100,7 @@ results = trainer.run_agents(training=True)
 
 ## 🔬 Research Features
 
-### 🌍 Environments
+### Environments
 
 **Brandl Social Learning**: Agents learn about a hidden state through private signals and social observation
 - Discrete actions, configurable networks, theoretical bounds analysis
@@ -108,13 +108,13 @@ results = trainer.run_agents(training=True)
 **Strategic Experimentation (Keller-Rady)**: Agents allocate resources between safe and risky options
 - Continuous actions, Lévy processes, exploration-exploitation trade-offs
 
-### 🧠 Neural Architectures
+### Neural Architectures
 
 - **Graph Neural Networks**: Temporal attention over social networks
 - **Transformers**: Advanced belief state processing
 - **Variational Inference**: Opponent modeling and belief updating
 
-### 🎯 Advanced Features
+### Advanced Features
 
 ```bash
 # Graph Neural Networks with temporal attention
