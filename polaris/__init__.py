@@ -12,11 +12,11 @@ __description__ = "POLARIS: Partially Observable Learning with Active Reinforcem
 
 # Main imports for easy access
 from polaris.agents.polaris_agent import POLARISAgent
+from polaris.config.args import parse_args
+from polaris.config.defaults import get_default_config
 from polaris.environments.social_learning import SocialLearningEnvironment
 from polaris.environments.strategic_exp import StrategicExperimentationEnvironment
 from polaris.training.trainer import Trainer
-from polaris.config.args import parse_args
-from polaris.config.defaults import get_default_config
 
 # Version info
 __all__ = [
@@ -26,7 +26,7 @@ __all__ = [
     "__license__",
     "__description__",
     "POLARISAgent",
-    "SocialLearningEnvironment", 
+    "SocialLearningEnvironment",
     "StrategicExperimentationEnvironment",
     "Trainer",
     "parse_args",
@@ -45,9 +45,11 @@ POLARIS models strategic adaptation and policy evolution as fundamental features
 social learning environments.
 """
 
+
 def get_version():
     """Get the current version of POLARIS."""
     return __version__
+
 
 def get_info():
     """Get package information."""
