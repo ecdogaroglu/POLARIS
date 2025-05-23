@@ -4,14 +4,14 @@
 
 **P**artially **O**bservable **L**earning with **A**ctive **R**einforcement **I**n **S**ocial Environments
 
-*A cutting-edge multi-agent reinforcement learning framework for social and strategic environments*
+*A theoretically-grounded multi-agent reinforcement learning framework for strategic social learning*
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-[🚀 Quick Start](#-quick-start) • [📖 Documentation](#-documentation) • [🔬 Research](#-research-features) • [💡 Examples](#-examples)
+[🚀 Quick Start](#-quick-start) • [📖 Documentation](#-documentation) • [🔬 Theoretical Foundations](#-theoretical-foundations) • [💡 Examples](#-examples)
 
 </div>
 
@@ -19,55 +19,111 @@
 
 ## 🎯 Overview
 
-POLARIS is a state-of-the-art multi-agent reinforcement learning framework designed for complex social and strategic environments. It combines advanced neural architectures with sophisticated learning algorithms to model partially observable environments where agents must learn from limited information while inferring the strategies of other agents.
+POLARIS bridges economic social learning theory and multi-agent reinforcement learning through a novel theoretical framework: **Partially Observable Active Markov Games (POAMGs)**. Unlike traditional approaches that treat multi-agent learning as a technical challenge, POLARIS models strategic adaptation and policy evolution as fundamental features of social learning environments.
 
 ### 🏆 Key Features
 
-- **🧠 Advanced Neural Architectures**: Graph Neural Networks, Transformers, and Temporal Attention
-- **🤝 Multi-Agent Learning**: Sophisticated opponent modeling and belief inference
-- **🎮 Flexible Environments**: Social learning and strategic experimentation scenarios
-- **🔄 Continual Learning**: Synaptic Intelligence and Elastic Weight Consolidation
-- **📊 Rich Visualization**: Comprehensive analysis and plotting tools
-- **⚡ High Performance**: Optimized for GPU/MPS acceleration
+- **🧠 Theoretical Rigor**: Formal mathematical framework with convergence guarantees and equilibrium analysis
+- **🎮 Strategic Sophistication**: Models how agents influence others' learning processes under partial observability
+- **🤝 Advanced Architectures**: Graph Neural Networks, Transformers, and Temporal Attention for sophisticated belief processing
+- **🔄 Continual Learning**: Synaptic Intelligence prevents catastrophic forgetting in evolving social environments
+- **📊 Empirical Validation**: Validates theoretical predictions in canonical social learning scenarios
+- **⚡ Scalable Implementation**: Optimized for modern GPU/MPS acceleration
+
+## 🧮 Theoretical Foundations
+
+POLARIS introduces **Partially Observable Active Markov Games (POAMGs)**, a formalism that extends Active Markov Games [[Kim et al., 2022]](https://arxiv.org/abs/2202.02546) to partially observable settings where agents must learn from limited information while reasoning about others' strategic adaptations.
+
+### 🔬 Core Theoretical Contributions
+
+#### **1. POAMGs Framework**
+We formalize social learning as a tuple $M_n = \langle I, S, \mathbf{A}, T, \mathbf{O}, \mathbf{R}, \mathbf{\Theta}, \mathbf{U} \rangle$ where:
+- $I = \{1, \ldots, n\}$ is the set of $n$ agents
+- $S$ is the state space (discrete and finite)
+- $\mathbf{A} = \times_{i \in I} A^i$ is the joint action space (**discrete** or **continuous**)
+- $T: S \times \mathbf{A} \mapsto \Delta(S)$ is the Markovian state transition function
+- $\mathbf{O} = \times_{i \in I} O^i$ is the joint observation function, with $O^i: S \times \Omega^i \mapsto \Delta(\Omega^i)$
+- $\mathbf{R} = \times_{i \in I} R^i$ is the joint reward function, with $R^i: S \times \mathbf{A} \mapsto \mathbb{R}$ (**observable** in strategic experimentation)
+- $\mathbf{\Theta} = \times_{i \in I} \Theta^i$ is the joint policy parameter space
+- $\mathbf{U} = \times_{i \in I} U^i$ is the joint policy update function space
+
+**Key Innovation:** Agents maintain **belief states** $b^i_t \in B^i$ about hidden world states, with policies defined as:
+$$\pi^i: B^i \times \Theta^i \mapsto \Delta(A^i)$$
+
+**Action Spaces:** POLARIS supports both **discrete** action spaces (for Brandl social learning) and **continuous** action spaces (for strategic experimentation with Lévy processes), with policies adapted accordingly.
+
+**Time Discretization:** For continuous-time dynamics, we employ time discretization with step size $\Delta t$ to make the framework computationally tractable while preserving essential dynamics.
+
+Unlike traditional frameworks that assume static policies or treat adaptation as noise, POAMGs incorporate policy evolution as an integral part of the environment dynamics, extending the Active Markov Game formulation of Kim et al. (2022) to handle partial observability.
+
+#### **2. Convergence Guarantees**
+**Theorem (Stochastically Stable Distribution):** Under mild regularity conditions, the joint process of states, beliefs, and policy parameters converges to a unique stochastically stable distribution $\mu^*$, ensuring well-defined limiting behavior despite non-stationary learning dynamics.
+
+This provides theoretical guarantees that social learning processes reach stable configurations regardless of initial conditions—a crucial property for long-term strategic planning.
+
+#### **3. Policy Gradient Theorems**
+We derive novel policy gradient theorems for both **average** and **discounted** reward criteria, providing flexibility for different modeling assumptions:
+
+**Average Reward Policy Gradient** (for continuing tasks without natural episodes):
+
+$$\nabla_{\theta^i} J^i(\theta^i) = \sum_{s,\mathbf{b},\mathbf{\Theta}} \mu(s,\mathbf{b},\mathbf{\Theta}) \sum_{a^i} \nabla_{\theta^i} \pi^i(a^i|b^i;\theta^i) \sum_{\mathbf{a}^{-i}} \pi^{-i}(\mathbf{a}^{-i}|\mathbf{b}^{-i};\theta^{-i}) q^i(s,\mathbf{b},\mathbf{\Theta},\mathbf{a})$$
+
+**Discounted Return Policy Gradient** (for agents with time preferences):
+$$\nabla_{\theta^i} J^{i}_{\gamma}(\theta^i) = \frac{1}{1-\gamma} \sum_{s,\mathbf{b},\mathbf{\Theta}} d^{\pi}(s,\mathbf{b},\mathbf{\Theta}) \sum_{a^i} \nabla_{\theta^i} \pi^i(a^i|b^i;\theta^i) q^i(s,\mathbf{b},\mathbf{\Theta},\mathbf{a})$$
+
+**Key Distinction:** The average reward formulation emphasizes long-term limiting behavior and is particularly suited for social learning where information value doesn't decay. The discounted formulation incorporates time preferences with discount factor $\gamma \in [0,1)$.
+
+These theorems extend classical policy gradients to **belief-conditioned policies** in **non-stationary multi-agent environments**, providing the mathematical foundation for strategic learning algorithms.
+
+#### **4. Equilibrium Concepts**
+**Definition (Partially Observable Active Equilibrium):** A configuration $\mathbf{\Theta}^*$ where no agent can improve their long-term reward by unilaterally changing their policy or learning strategy, accounting for:
+- **Partial observability** through belief states
+- **Strategic adaptation** through policy evolution
+- **Long-term consequences** of influencing others' learning
+
+This equilibrium concept captures sophisticated strategic reasoning while remaining computationally tractable through policy gradient optimization.
+
+### 📈 Theoretical Insights
+
+Our framework reveals several fundamental insights about social learning:
+
+1. **Strategic Teaching**: Agents may choose seemingly suboptimal actions to influence others' beliefs and future behaviors
+2. **Information Revelation**: Strategic considerations affect how agents reveal private information through their actions  
+3. **Learning Barriers**: Even optimal social learning strategies face fundamental limits determined by signal informativeness
+4. **Network Effects**: Social network topology significantly influences both learning speed and strategic behavior
+
+These insights emerge from explicitly modeling how agents reason about and influence others' learning processes, building upon the active influence mechanisms introduced by Kim et al. (2022) but extended to settings with partial observability and belief-based decision making.
 
 ## 🏗️ Architecture
 
-POLARIS follows a modular design for maximum flexibility and extensibility:
+POLARIS follows a modular design that implements our theoretical framework:
 
 ```
 polaris/
-├── 🤖 agents/                 # Intelligent agent implementations
-│   ├── polaris_agent.py      # Main POLARIS agent
+├── 🤖 agents/                 # POLARIS agent implementation
+│   ├── polaris_agent.py      # Main POAMG-based agent
 │   ├── components/           # Modular agent components
-│   │   ├── belief.py         # Belief state processing
-│   │   ├── inference.py      # Opponent inference
-│   │   ├── policy.py         # Policy networks
-│   │   └── critics.py        # Value function networks
-│   └── memory/               # Memory systems
-│       └── replay_buffer.py  # Experience replay
-├── 🌍 environments/          # Training environments
-│   ├── social_learning.py    # Brandl social learning
+│   │   ├── belief.py         # Belief state processing (Transformers)
+│   │   ├── inference.py      # Opponent modeling (Variational inference)
+│   │   ├── policy.py         # Policy networks (Discrete/Continuous)
+│   │   └── critics.py        # Value function approximation
+│   └── memory/               # Experience replay systems
+├── 🌍 environments/          # Canonical social learning scenarios
+│   ├── social_learning.py    # Brandl social learning model
 │   └── strategic_exp.py      # Keller-Rady strategic experimentation
-├── 🧠 networks/              # Neural network architectures
-│   ├── gnn.py               # Graph Neural Networks
-│   ├── transformer.py       # Transformer models
-│   └── mlp.py               # Multi-layer perceptrons
-├── 🎯 algorithms/            # Learning algorithms
-│   └── regularization/      # Continual learning
+├── 🧠 networks/              # Advanced neural architectures
+│   ├── gnn.py               # Graph Neural Networks with temporal attention
+│   └── transformer.py       # Transformer belief processors
+├── 🎯 algorithms/            # Continual learning algorithms
+│   └── regularization/      # Prevent catastrophic forgetting
 │       ├── si.py           # Synaptic Intelligence
 │       └── ewc.py          # Elastic Weight Consolidation
 ├── 🚂 training/             # Training infrastructure
-│   ├── trainer.py          # Main training loop
-│   └── evaluator.py        # Evaluation system
-├── 📊 visualization/        # Analysis and plotting
-│   └── plots/              # Visualization modules
-├── 🔧 utils/               # Utility functions
-│   ├── device.py          # Device management
-│   ├── encoding.py        # Data encoding
-│   └── metrics.py         # Performance metrics
+│   ├── trainer.py          # Policy gradient optimization
+│   └── evaluator.py        # Performance evaluation
+├── 📊 visualization/        # Analysis and plotting tools
+├── 🔧 utils/               # Utilities (device management, encoding)
 └── ⚙️ config/              # Configuration system
-    ├── args.py            # Argument parsing
-    └── defaults.py        # Default configurations
 ```
 
 ## 🚀 Quick Start
@@ -140,6 +196,18 @@ python -m polaris.simulation \
 
 ## 🔬 Research Features
 
+### 🧪 Theoretical Validation
+
+POLARIS validates key theoretical predictions from economic social learning:
+
+#### **Learning Barrier Theorem**
+For any strategy profile, some agent's learning rate is bounded by the **Jeffreys divergence** between signal distributions, regardless of network size:
+$$\min_i r^i(\sigma) \leq r_{bdd} = \min_{\theta \neq \theta'} \left[D_{KL}(\mu_\theta \| \mu_{\theta'}) + D_{KL}(\mu_{\theta'} \| \mu_\theta)\right]$$
+
+#### **Coordination Benefits Theorem**
+In large, well-connected networks, all agents can achieve learning rates above the coordination bound:
+$$\min_i r^i(\sigma) \geq r_{crd} - \epsilon = \min_{\theta \neq \theta'} D_{KL}(\mu_\theta \| \mu_{\theta'}) - \epsilon$$
+
 ### 🧪 Multi-Environment Support
 
 #### Brandl Social Learning Environment
@@ -147,17 +215,20 @@ python -m polaris.simulation \
 - **Signal Accuracy Control**: Configurable information quality (default: 0.75)
 - **Network Topologies**: Complete, ring, star, random networks
 - **Belief Dynamics**: Sophisticated belief updating mechanisms
+- **Hidden Rewards**: Agents don't observe reward functions directly, learning through action observation
 
 #### Strategic Experimentation Environment (Keller-Rady)
-- **Continuous Action Spaces**: Real-valued strategic choices
-- **Lévy Processes**: Advanced stochastic modeling
-- **Exploration-Exploitation Trade-offs**: Dynamic strategy adaptation
-- **Market-like Dynamics**: Competitive multi-agent scenarios
+- **Continuous Action Spaces**: Real-valued allocation decisions $a^i_t \in [0,1]$
+- **Lévy Processes**: Risky arm payoffs follow $X^i_t = \alpha_\omega t + \sigma Z^i_t + Y^i_t$
+- **Observable Rewards**: Agents observe their own and others' payoff processes
+- **Time Discretization**: Continuous-time processes discretized with step $\Delta t$
+- **Background Information**: Exogenous information arrival $B_t = \beta_\omega t + \sigma_B Z^B_t + Y^B_t$
+- **Average Reward Criterion**: Optimizes $\lim_{T \to \infty} \mathbb{E}[\frac{1}{T}\int_0^T \text{payoff}_t dt]$
 
 ### 🧠 Advanced Neural Architectures
 
 #### Graph Neural Networks (GNNs)
-```python
+```bash
 # Enable GNN with temporal attention
 python -m polaris.simulation \
     --environment-type brandl \
@@ -167,8 +238,16 @@ python -m polaris.simulation \
     --temporal-window 10
 ```
 
+Our GNN implementation features:
+- **Temporal Attention**: Aggregates information across time horizons
+- **Belief-Action Fusion**: Combines private beliefs with observed actions
+- **Dynamic Network Topology**: Adapts to changing social connections
+
 #### Transformer Belief Processors
-The framework includes transformer-based belief processing for sophisticated state representation learning.
+Advanced belief state processing using Transformer architectures:
+- **Sequence Modeling**: Processes observation histories for belief updating
+- **Attention Mechanisms**: Focuses on relevant historical information
+- **Continuous/Discrete Support**: Handles both signal types seamlessly
 
 ### 🔄 Continual Learning
 
@@ -182,6 +261,8 @@ python -m polaris.simulation \
     --si-importance 150.0 \
     --si-damping 0.1
 ```
+
+**Synaptic Intelligence (SI)** preserves important network parameters while allowing adaptation to new scenarios, crucial for modeling realistic social learning where environments gradually evolve.
 
 ## 💡 Examples
 
@@ -258,7 +339,7 @@ python -m polaris.simulation \
 
 ## 📊 Visualization & Analysis
 
-POLARIS includes comprehensive visualization tools:
+POLARIS includes comprehensive visualization tools for analyzing social learning dynamics:
 
 ```bash
 # Enable internal state visualization
@@ -283,7 +364,7 @@ python -m polaris.simulation \
 
 ## ⚙️ Configuration
 
-POLARIS uses a flexible configuration system:
+POLARIS uses a flexible configuration system that supports both programmatic and command-line configuration:
 
 ```python
 from polaris.config.defaults import get_default_config
@@ -350,11 +431,11 @@ experiment = ExperimentConfig(agent_config=agent_config)
 
 - **[API Reference](docs/api.md)**: Complete API documentation
 - **[Configuration Guide](docs/configuration.md)**: Configuration options
-- **[Research Paper](docs/thesis.pdf)**: Relevant publication
+- **[Thesis](docs/thesis.pdf)**: Complete theoretical foundations and mathematical derivations
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions!
 
 ### Development Setup
 
@@ -379,24 +460,23 @@ If you use POLARIS in your research, please cite:
 ```bibtex
 @software{polaris2025,
   title={POLARIS: Partially Observable Learning with Active Reinforcement In Social Environments},
-  author={Ege Can Dogaroglu},
+  author={Ege Can Doğaroğlu},
   year={2025},
   url={https://github.com/ecdogaroglu/polaris}
 }
+
+@article{kim2022influencing,
+  title={Influencing Others via Information Design: Policy Optimization in Multi-Agent Environments},
+  author={Kim, Bobak and Fazel, Maryam and Sadigh, Dorsa},
+  journal={arXiv preprint arXiv:2202.02546},
+  year={2022}
+}
 ```
-
-## 🙏 Acknowledgments
-
-- Brandl et al. for social learning foundations
-- Keller & Rady for strategic experimentation framework
-- PyTorch team for the excellent deep learning framework
-- PyTorch Geometric team for graph neural network tools
 
 ---
 
 <div align="center">
 
-**Built with ❤️ for the multi-agent learning community**
 
 [⭐ Star on GitHub](https://github.com/ecdogaroglu/polaris) • [🐛 Report Issues](https://github.com/ecdogaroglu/polaris/issues) • [💬 Discussions](https://github.com/ecdogaroglu/polaris/discussions)
 
