@@ -6,6 +6,10 @@ include LICENSE
 include requirements.txt
 include pyproject.toml
 
+# Include experiment scripts
+recursive-include experiments *.py
+include experiments/README.md
+
 # Include configuration files
 recursive-include polaris *.py
 recursive-include polaris *.yaml
@@ -26,6 +30,5 @@ global-exclude *.dylib
 exclude .gitignore
 exclude .pre-commit-config.yaml
 recursive-exclude tests *
-recursive-exclude experiments *
 recursive-exclude results *
 recursive-exclude docs * 

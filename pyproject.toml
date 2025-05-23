@@ -98,6 +98,10 @@ Repository = "https://github.com/ecdogaroglu/polaris"
 
 [project.scripts]
 polaris-simulate = "polaris.simulation:main"
+polaris-brandl = "polaris.experiments.brandl_experiment:main"
+polaris-strategic = "polaris.experiments.keller_rady_experiment:main"
+polaris-sweep = "polaris.experiments.keller_rady_sweep:main"
+polaris-experiment = "polaris.experiments.run_experiment:main"
 
 [tool.setuptools]
 packages = {find = {}}
