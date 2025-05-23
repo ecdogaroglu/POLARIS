@@ -1,135 +1,403 @@
-# POLARIS - Partially Observable Learning with Active Reinforcement In Social Environments
+# POLARIS
 
-POLARIS is a framework for multi-agent reinforcement learning in social learning environments, implementing different approaches from economic theory to understand and model strategic learning behavior.
+<div align="center">
 
-## Overview
+**P**artially **O**bservable **L**earning with **A**ctive **R**einforcement **I**n **S**ocial Environments
 
-This repository implements two key frameworks from economic social learning theory:
+*A cutting-edge multi-agent reinforcement learning framework for social and strategic environments*
 
-1. **Strategic Experimentation Framework** (Keller, Rady (2020) Model): Agents allocate resources between a safe arm with known payoff and a risky arm with unknown state-dependent payoff, learning from their own and others' observed rewards.
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-2. **Learning without Experimentation Framework** (Brandl (2024) Model): Agents learn from private signals and by observing other agents' actions, without direct payoff feedback from their own actions.
+[🚀 Quick Start](#-quick-start) • [📖 Documentation](#-documentation) • [🔬 Research](#-research-features) • [💡 Examples](#-examples)
 
-Both frameworks are implemented using the Partially Observable Active Markov Game (POAMG) formalism, which extends standard reinforcement learning to account for partial observability and strategic influence between agents.
+</div>
 
-## Installation
+---
 
-1. Clone the repository:
+## 🎯 Overview
+
+POLARIS is a state-of-the-art multi-agent reinforcement learning framework designed for complex social and strategic environments. It combines advanced neural architectures with sophisticated learning algorithms to model partially observable environments where agents must learn from limited information while inferring the strategies of other agents.
+
+### 🏆 Key Features
+
+- **🧠 Advanced Neural Architectures**: Graph Neural Networks, Transformers, and Temporal Attention
+- **🤝 Multi-Agent Learning**: Sophisticated opponent modeling and belief inference
+- **🎮 Flexible Environments**: Social learning and strategic experimentation scenarios
+- **🔄 Continual Learning**: Synaptic Intelligence and Elastic Weight Consolidation
+- **📊 Rich Visualization**: Comprehensive analysis and plotting tools
+- **⚡ High Performance**: Optimized for GPU/MPS acceleration
+
+## 🏗️ Architecture
+
+POLARIS follows a modular design for maximum flexibility and extensibility:
+
+```
+polaris/
+├── 🤖 agents/                 # Intelligent agent implementations
+│   ├── polaris_agent.py      # Main POLARIS agent
+│   ├── components/           # Modular agent components
+│   │   ├── belief.py         # Belief state processing
+│   │   ├── inference.py      # Opponent inference
+│   │   ├── policy.py         # Policy networks
+│   │   └── critics.py        # Value function networks
+│   └── memory/               # Memory systems
+│       └── replay_buffer.py  # Experience replay
+├── 🌍 environments/          # Training environments
+│   ├── social_learning.py    # Brandl social learning
+│   └── strategic_exp.py      # Keller-Rady strategic experimentation
+├── 🧠 networks/              # Neural network architectures
+│   ├── gnn.py               # Graph Neural Networks
+│   ├── transformer.py       # Transformer models
+│   └── mlp.py               # Multi-layer perceptrons
+├── 🎯 algorithms/            # Learning algorithms
+│   └── regularization/      # Continual learning
+│       ├── si.py           # Synaptic Intelligence
+│       └── ewc.py          # Elastic Weight Consolidation
+├── 🚂 training/             # Training infrastructure
+│   ├── trainer.py          # Main training loop
+│   └── evaluator.py        # Evaluation system
+├── 📊 visualization/        # Analysis and plotting
+│   └── plots/              # Visualization modules
+├── 🔧 utils/               # Utility functions
+│   ├── device.py          # Device management
+│   ├── encoding.py        # Data encoding
+│   └── metrics.py         # Performance metrics
+└── ⚙️ config/              # Configuration system
+    ├── args.py            # Argument parsing
+    └── defaults.py        # Default configurations
+```
+
+## 🚀 Quick Start
+
+### Installation
+
 ```bash
-git clone https://github.com/yourusername/polaris.git
+# Clone the repository
+git clone https://github.com/ecdogaroglu/polaris.git
 cd polaris
-```
 
-2. Install the required packages:
-```bash
+# Install dependencies
 pip install -r requirements.txt
+
+# Install POLARIS
+pip install -e .
 ```
 
-## Usage
+### Basic Usage
 
-### General Command
+```python
+from polaris.environments.social_learning import SocialLearningEnvironment
+from polaris.training.trainer import run_agents
+from polaris.config.args import parse_args
+from polaris.config.defaults import get_default_config
 
-The main script `experiment.py` allows running experiments with either framework:
+# Configure environment using defaults
+config = get_default_config('brandl')
+config.update({
+    'num_agents': 5,
+    'num_states': 3,
+    'signal_accuracy': 0.8
+})
+
+# Create environment
+env = SocialLearningEnvironment(
+    num_agents=config['num_agents'],
+    num_states=config['num_states'],
+    signal_accuracy=config['signal_accuracy']
+)
+
+# Parse command line arguments
+args = parse_args()
+args.num_agents = config['num_agents']
+args.num_states = config['num_states']
+
+# Train the system
+learning_rates, metrics = run_agents(env, args, training=True)
+```
+
+### Running Experiments
 
 ```bash
-python experiment.py --environment-type [brandl|strategic_experimentation] [options]
+# Brandl Social Learning Environment
+python -m polaris.simulation \
+    --environment-type brandl \
+    --num-agents 10 \
+    --num-states 5 \
+    --network-type complete \
+    --signal-accuracy 0.8
+
+# Strategic Experimentation (Keller-Rady)
+python -m polaris.simulation \
+    --environment-type strategic_experimentation \
+    --num-agents 4 \
+    --continuous-actions \
+    --use-gnn \
+    --gnn-layers 3
 ```
 
-### Specialized Scripts
+## 🔬 Research Features
 
-For convenience, we provide specialized scripts for each framework:
+### 🧪 Multi-Environment Support
 
-- For Learning without Experimentation framework:
+#### Brandl Social Learning Environment
+- **Discrete Action Spaces**: Binary or multi-choice decisions
+- **Signal Accuracy Control**: Configurable information quality (default: 0.75)
+- **Network Topologies**: Complete, ring, star, random networks
+- **Belief Dynamics**: Sophisticated belief updating mechanisms
+
+#### Strategic Experimentation Environment (Keller-Rady)
+- **Continuous Action Spaces**: Real-valued strategic choices
+- **Lévy Processes**: Advanced stochastic modeling
+- **Exploration-Exploitation Trade-offs**: Dynamic strategy adaptation
+- **Market-like Dynamics**: Competitive multi-agent scenarios
+
+### 🧠 Advanced Neural Architectures
+
+#### Graph Neural Networks (GNNs)
+```python
+# Enable GNN with temporal attention
+python -m polaris.simulation \
+    --environment-type brandl \
+    --use-gnn \
+    --gnn-layers 3 \
+    --attn-heads 8 \
+    --temporal-window 10
+```
+
+#### Transformer Belief Processors
+The framework includes transformer-based belief processing for sophisticated state representation learning.
+
+### 🔄 Continual Learning
+
+Prevent catastrophic forgetting with advanced regularization:
+
 ```bash
-python brandl_experiment.py [options]
+# Enable Synaptic Intelligence
+python -m polaris.simulation \
+    --environment-type brandl \
+    --use-si \
+    --si-importance 150.0 \
+    --si-damping 0.1
 ```
 
-- For Strategic Experimentation framework:
+## 💡 Examples
+
+### Example 1: Brandl Social Learning with Network Effects
+
+```python
+from polaris.environments.social_learning import SocialLearningEnvironment
+from polaris.training.trainer import Trainer
+from polaris.config.args import parse_args
+
+# Setup environment with star network
+env = SocialLearningEnvironment(
+    num_agents=10,
+    num_states=3,
+    network_type='star',
+    signal_accuracy=0.8
+)
+
+# Configure training
+args = parse_args()
+args.environment_type = 'brandl'
+args.num_agents = 10
+args.num_states = 3
+args.use_gnn = True
+
+# Train agents
+trainer = Trainer(env, args)
+results = trainer.run_agents(training=True)
+```
+
+### Example 2: Strategic Experimentation with GNNs
+
+```python
+from polaris.environments.strategic_exp import StrategicExperimentationEnvironment
+from polaris.training.trainer import Trainer
+
+# Create continuous action environment
+env = StrategicExperimentationEnvironment(
+    num_agents=4,
+    continuous_actions=True,
+    safe_payoff=1.0
+)
+
+# Configure with GNN
+args = parse_args()
+args.environment_type = 'strategic_experimentation'
+args.continuous_actions = True
+args.use_gnn = True
+args.gnn_layers = 3
+args.attn_heads = 8
+
+trainer = Trainer(env, args)
+results = trainer.run_agents(training=True)
+```
+
+### Example 3: Evaluation and Visualization
+
 ```bash
-python keller_rady_experiment.py [options]
+# Train then evaluate with visualization
+python -m polaris.simulation \
+    --environment-type brandl \
+    --train-then-evaluate \
+    --plot-internal-states \
+    --plot-type both \
+    --save-model
+
+# Evaluation only with model loading
+python -m polaris.simulation \
+    --environment-type brandl \
+    --eval-only \
+    --load-model auto \
+    --plot-internal-states
 ```
 
-## Key Parameters
+## 📊 Visualization & Analysis
 
-### Shared Parameters
+POLARIS includes comprehensive visualization tools:
 
-- `--num-agents`: Number of agents (default: 2)
-- `--num-states`: Number of possible states (default: 2)
-- `--network-type`: Network structure (choices: 'complete', 'ring', 'star', 'random', default: 'complete')
-- `--network-density`: Density for random networks (default: 0.5)
-- `--horizon`: Total number of steps per episode (default: 1000)
-- `--num-episodes`: Number of episodes for training (default: 1)
-- `--seed`: Random seed (default: 42)
+```bash
+# Enable internal state visualization
+python -m polaris.simulation \
+    --environment-type brandl \
+    --plot-internal-states \
+    --plot-type belief \
+    --latex-style
 
-### Strategic Experimentation Parameters
+# Strategic experimentation allocation plots
+python -m polaris.simulation \
+    --environment-type strategic_experimentation \
+    --plot-allocations \
+    --continuous-actions
 
-- `--safe-payoff`: Deterministic payoff of the safe arm (default: 1.0)
-- `--drift-rates`: Comma-separated list of drift rates for each state (default: "-0.5,0.5")
-- `--diffusion-sigma`: Volatility of the diffusion component (default: 0.5)
-- `--jump-rates`: Comma-separated list of Poisson rates for jumps in each state (default: "0.1,0.2")
-- `--jump-sizes`: Comma-separated list of expected jump sizes in each state (default: "1.0,1.0")
-- `--background-informativeness`: Informativeness of the background signal process (default: 0.1)
-- `--time-step`: Size of time step for discretizing the Lévy processes (default: 0.1)
+# Synaptic Intelligence visualization
+python -m polaris.simulation \
+    --environment-type brandl \
+    --use-si \
+    --visualize-si
+```
 
-### Learning without Experimentation Framework Parameters
+## ⚙️ Configuration
 
-- `--signal-accuracy`: Accuracy of private signals (default: 0.75)
+POLARIS uses a flexible configuration system:
 
+```python
+from polaris.config.defaults import get_default_config
 
-### Agent Parameters
+# Get default configuration for Brandl
+config = get_default_config('brandl')
 
-- `--discount-factor`: Discount factor for RL (0 = average reward, default: 0.9)
-- `--entropy-weight`: Entropy bonus weight (default: 0.5)
-- `--use-gnn`: Use Graph Neural Network with temporal attention
-- `--use-si`: Use Synaptic Intelligence to prevent catastrophic forgetting
+# Available defaults include:
+# - AGENT_DEFAULTS: hidden_dim=256, learning_rate=1e-3, etc.
+# - TRAINING_DEFAULTS: batch_size=128, buffer_capacity=1000, etc.
+# - ENVIRONMENT_DEFAULTS: num_agents=2, num_states=2, etc.
+# - BRANDL_DEFAULTS: signal_accuracy=0.75
+# - STRATEGIC_EXP_DEFAULTS: safe_payoff=1.0, continuous_actions=False, etc.
 
+# Customize parameters
+config.update({
+    'num_agents': 15,
+    'num_states': 4,
+    'signal_accuracy': 0.9,
+    'hidden_dim': 512,
+    'learning_rate': 5e-4,
+    'use_gnn': True,
+    'gnn_layers': 3,
+})
+```
 
-## Architecture
+## 🔧 Advanced Features
 
-The framework is built with a modular architecture:
+### Device Management
+```python
+from polaris.utils.device import get_best_device
 
-1. **Base Environment**: Abstract base class that defines the interface for all environment implementations
-2. **Specific Environments**:
-   - `StrategicExperimentationEnvironment`: Implements the Keller-Rady model
-   - `SocialLearningEnvironment`: Implements the Brandl model
-3. **POLARIS Agent**: Reinforcement learning agent with three key components:
-   - Belief processing module using Transformers
-   - Inference learning module with GNNs
-   - RL module with MASAC (Multi-Agent Soft Actor-Critic)
+# Automatic device selection with MPS support
+device = get_best_device()  # Returns 'mps', 'cuda', or 'cpu'
 
-## Theoretical Foundations
+# Force specific device via command line
+python -m polaris.simulation --device cuda
+```
 
-- **Strategic Experimentation**: Based on Keller and Rady (2020), focusing on resource allocation under uncertainty with observable rewards.
+### Memory Management
+```python
+from polaris.agents.memory.replay_buffer import ReplayBuffer
 
-- **Brandl Framework**: Based on Brandl (2024), focusing on learning without experimentation through action observation.
+# Advanced replay buffer with sequence sampling
+buffer = ReplayBuffer(
+    capacity=1000,
+    observation_dim=64,
+    belief_dim=256,
+    latent_dim=256,
+    sequence_length=8
+)
+```
 
+### Experiment Configuration
+```python
+from polaris.config.experiment_config import ExperimentConfig, AgentConfig
 
-Both implementations are within the Partially Observable Active Markov Game framework, which captures how agents strategically influence each other's learning processes.
+# Structured configuration
+agent_config = AgentConfig(hidden_dim=256, use_gnn=True)
+experiment = ExperimentConfig(agent_config=agent_config)
+```
 
-## Visualization and Analysis
+## 📚 Documentation
 
-The framework includes tools for visualizing results:
+- **[API Reference](docs/api.md)**: Complete API documentation
+- **[Configuration Guide](docs/configuration.md)**: Configuration options
+- **[Research Paper](docs/papers.md)**: Relevant publications
 
-- Learning curves and convergence rates
-- Network influence visualizations
-- Belief state evolution
-- Comparison with theoretical bounds
+## 🤝 Contributing
 
-## Citation
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
-If you use this code in your research, please cite:
+### Development Setup
+
+```bash
+# Clone and install in development mode
+git clone https://github.com/ecdogaroglu/polaris.git
+cd polaris
+pip install -e .
+
+# Run experiments
+python -m polaris.simulation --help
+```
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 📚 Citation
+
+If you use POLARIS in your research, please cite:
 
 ```bibtex
-@misc{dogaroglu2024polaris,
-  author = {Doğaroğlu, Ege Can},
-  title = {POLARIS: Partially Observable Learning with Active Reinforcement In Social Environments},
-  year = {2024},
-  publisher = {GitHub},
-  journal = {GitHub repository},
-  howpublished = {\url{https://github.com/ecdogaroglu/POLARIS}}
+@software{polaris2025,
+  title={POLARIS: Partially Observable Learning with Active Reinforcement In Social Environments},
+  author={Ege Can Dogaroglu},
+  year={2025},
+  url={https://github.com/ecdogaroglu/polaris}
 }
 ```
 
-## License
+## 🙏 Acknowledgments
 
-MIT License
+- Brandl et al. for social learning foundations
+- Keller & Rady for strategic experimentation framework
+- PyTorch team for the excellent deep learning framework
+- PyTorch Geometric team for graph neural network tools
+
+---
+
+<div align="center">
+
+**Built with ❤️ for the multi-agent learning community**
+
+[⭐ Star on GitHub](https://github.com/ecdogaroglu/polaris) • [🐛 Report Issues](https://github.com/ecdogaroglu/polaris/issues) • [💬 Discussions](https://github.com/ecdogaroglu/polaris/discussions)
+
+</div> 

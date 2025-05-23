@@ -1,7 +1,12 @@
+"""
+Abstract base class for POLARIS environments.
+"""
+
 import numpy as np
 import networkx as nx
 from typing import Dict, List, Tuple, Optional, Union
 from abc import ABC, abstractmethod
+
 
 class BaseEnvironment(ABC):
     """
@@ -139,4 +144,3 @@ class BaseEnvironment(ABC):
     def get_neighbors(self, agent_id: int) -> List[int]:
         """Get the neighbors of an agent."""
         return [j for j in range(self.num_agents) if self.network[agent_id, j] == 1]
-

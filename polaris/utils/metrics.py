@@ -6,7 +6,7 @@ import json
 import numpy as np
 import torch
 from pathlib import Path
-from polaris.utils.utils import calculate_learning_rate
+from ..utils.math import calculate_learning_rate
 
 def initialize_metrics(env, args, training):
     """Initialize metrics dictionary for tracking experiment results."""
@@ -23,18 +23,13 @@ def initialize_metrics(env, args, training):
     # Add training-specific or evaluation-specific metrics
     if training:
         metrics['training_loss'] = []
-        # Add belief and latent state tracking for training if plot_internal_states is enabled
+        # Add belief distribution tracking for strategic experimentation if plot_internal_states is enabled
         if hasattr(args, 'plot_internal_states') and args.plot_internal_states:
-            metrics['belief_states'] = {agent_id: [] for agent_id in range(env.num_agents)}
-            metrics['latent_states'] = {agent_id: [] for agent_id in range(env.num_agents)}
             metrics['belief_distributions'] = {agent_id: [] for agent_id in range(env.num_agents)}
             metrics['opponent_belief_distributions'] = {agent_id: [] for agent_id in range(env.num_agents)}
     else:
         metrics['correct_actions'] = {agent_id: 0 for agent_id in range(env.num_agents)}
-        # Add belief and latent state tracking for evaluation
-        metrics['belief_states'] = {agent_id: [] for agent_id in range(env.num_agents)}
-        metrics['latent_states'] = {agent_id: [] for agent_id in range(env.num_agents)}
-        # Add belief distribution tracking
+        # Add belief distribution tracking for evaluation
         metrics['belief_distributions'] = {agent_id: [] for agent_id in range(env.num_agents)}
         metrics['opponent_belief_distributions'] = {agent_id: [] for agent_id in range(env.num_agents)}
     
@@ -66,6 +61,18 @@ def update_metrics(metrics, info, actions, action_probs=None, beliefs=None, late
         metrics['mistake_rates'].append(info['mistake_rate'])
     if 'incorrect_prob' in info:
         metrics['incorrect_probs'].append(info['incorrect_prob'])
+        
+        # Store incorrect probabilities in per-agent format for plotting
+        incorrect_prob = info['incorrect_prob']
+        if isinstance(incorrect_prob, list):
+            # Per-agent incorrect probabilities
+            for agent_id, prob in enumerate(incorrect_prob):
+                if agent_id in metrics['action_probs']:
+                    metrics['action_probs'][agent_id].append(prob)
+        else:
+            # Scalar incorrect probability - apply to all agents
+            for agent_id in metrics['action_probs']:
+                metrics['action_probs'][agent_id].append(incorrect_prob)
     
     # Update action probabilities
     if action_probs is not None:
@@ -151,16 +158,6 @@ def update_metrics(metrics, info, actions, action_probs=None, beliefs=None, late
                     metrics['policy_kl_divergence'][agent_id].append(kl)
                     metrics['agent_beliefs'][agent_id].append(agent_belief)
                 
-    # Update belief states if requested and available
-    if beliefs is not None and 'belief_states' in metrics:
-        for agent_id, belief in beliefs.items():
-            metrics['belief_states'][agent_id].append(belief)
-    
-    # Update latent states if requested and available
-    if latent_states is not None and 'latent_states' in metrics:
-        for agent_id, latent in latent_states.items():
-            metrics['latent_states'][agent_id].append(latent)
-            
     # Update opponent beliefs if requested and available
     if opponent_beliefs is not None and 'opponent_belief_distributions' in metrics:
         for agent_id, opponent_belief in opponent_beliefs.items():
@@ -266,8 +263,6 @@ def calculate_dynamic_mpe(true_state, belief, safe_payoff, drift_rates, jump_rat
     # Adjust for number of players and background signal
     k0 = background_informativeness
     n = num_agents
-    print(f"Belief: {belief}")
-    print(f"Incentive: {incentive}")
 
     if incentive <= k0:
         return 0.0  # No experimentation
@@ -301,7 +296,6 @@ def calculate_policy_kl_divergence(policy_mean, policy_std, mpe_allocation):
     
     # Convert to tensor
     policy_std = torch.tensor(policy_std)
-    print(f"Policy mean: {policy_mean}, Policy std: {policy_std}, MPE allocation: {mpe_allocation}")
 
     # Calculate the negative log probability of the MPE allocation under the policy distribution
     # The log probability density function (PDF) of a normal distribution N(μ, σ^2) at x is:
@@ -313,7 +307,6 @@ def calculate_policy_kl_divergence(policy_mean, policy_std, mpe_allocation):
     log_pdf = -0.5 * (z_score ** 2) - torch.log(policy_std) - 0.5 * torch.log(torch.tensor(2 * np.pi))
     kl_divergence = -log_pdf
     kl_divergence = torch.clamp(kl_divergence, min=0, max=100)
-    print(f"KL divergence: {kl_divergence.item()}")
     return kl_divergence.item()
 
 
@@ -352,9 +345,7 @@ def prepare_serializable_metrics(metrics, learning_rates, theoretical_bounds, nu
                          for agent_id, actions in metrics['agent_actions'].items()},
         'learning_rates': {str(k): float(v) for k, v in learning_rates.items()},
         
-        # Add belief and latent states if they exist
-        'has_belief_states': 'belief_states' in metrics,
-        'has_latent_states': 'latent_states' in metrics,
+        # Add belief distributions if they exist
         'has_belief_distributions': 'belief_distributions' in metrics,
         'fastest_agent': {
             'id': int(fastest_agent[0]),
@@ -480,3 +471,37 @@ def save_metrics_to_file(metrics, output_dir, training, filename=None):
     metrics_file = output_dir / filename
     with open(metrics_file, 'w') as f:
         json.dump(serializable_metrics, f, indent=2)
+
+def calculate_theoretical_bounds(env):
+    """Calculate theoretical performance bounds based on environment type."""
+    # Check environment type
+    if hasattr(env, 'get_autarky_rate'):
+        # Social Learning Environment
+        return {
+            'autarky_rate': env.get_autarky_rate(),
+            'bound_rate': env.get_bound_rate(),
+            'coordination_rate': env.get_coordination_rate()
+        }
+    elif hasattr(env, 'get_theoretical_mpe'):
+        # Strategic Experimentation Environment
+        # Calculate MPE based on 0.5 beliefs (neutral prior)
+        neutral_beliefs = [0.5] * env.num_agents
+        mpe_allocations = env.get_theoretical_mpe(neutral_beliefs)
+        
+        # For good state (state 1), optimal allocation is usually higher
+        good_beliefs = [0.8] * env.num_agents
+        good_allocations = env.get_theoretical_mpe(good_beliefs)
+        
+        # For bad state (state 0), optimal allocation is usually lower
+        bad_beliefs = [0.2] * env.num_agents
+        bad_allocations = env.get_theoretical_mpe(bad_beliefs)
+        
+        return {
+            'mpe_neutral': np.mean(mpe_allocations),
+            'mpe_good_state': np.mean(good_allocations),
+            'mpe_bad_state': np.mean(bad_allocations)
+        }
+    else:
+        # Default empty bounds for unknown environment types
+        print("Warning: Unknown environment type, cannot calculate theoretical learning rates.")
+        return {}
