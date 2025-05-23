@@ -1,17 +1,33 @@
 from setuptools import setup, find_packages
 import os
 
-# Read the README file
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+# Read the README file with fallback
+def get_long_description():
+    readme_path = "README.md"
+    if os.path.exists(readme_path):
+        try:
+            with open(readme_path, "r", encoding="utf-8") as fh:
+                return fh.read()
+        except (IOError, OSError) as e:
+            print(f"Warning: Could not read README.md: {e}")
+            return "POLARIS: Partially Observable Learning with Active Reinforcement In Social Environments"
+    else:
+        print(f"Warning: README.md not found at {readme_path}")
+        return "POLARIS: Partially Observable Learning with Active Reinforcement In Social Environments"
+
+long_description = get_long_description()
 
 # Read version from __init__.py
 def get_version():
     init_file = os.path.join("polaris", "__init__.py")
-    with open(init_file, "r", encoding="utf-8") as f:
-        for line in f:
-            if line.startswith("__version__"):
-                return line.split("=")[1].strip().strip('"').strip("'")
+    if os.path.exists(init_file):
+        try:
+            with open(init_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("__version__"):
+                        return line.split("=")[1].strip().strip('"').strip("'")
+        except (IOError, OSError) as e:
+            print(f"Warning: Could not read version from {init_file}: {e}")
     return "2.0.0"
 
 setup(

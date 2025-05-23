@@ -23,6 +23,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Ensure full checkout
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
@@ -46,6 +48,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Ensure full checkout
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
@@ -83,6 +87,19 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Ensure full checkout
+    
+    - name: Debug - Check files present
+      run: |
+        echo "=== Current directory ==="
+        pwd
+        echo "=== Files in root ==="
+        ls -la
+        echo "=== README.md status ==="
+        ls -la README.md || echo "README.md not found"
+        echo "=== setup.py status ==="
+        ls -la setup.py || echo "setup.py not found"
     
     - name: Set up Python
       uses: actions/setup-python@v4
