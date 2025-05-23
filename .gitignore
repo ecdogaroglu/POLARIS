@@ -3,6 +3,12 @@
 /results/
 experiments/results/
 
+# PyPI-specific ignores (files not needed in package)
+thesis.tex
+PUBLISHING_GUIDE.md
+test_output*/
+test_run*/
+
 # Python specific ignores
 __pycache__/
 *.py[cod]
@@ -32,7 +38,7 @@ ENV/
 env/
 .env
 
-# IDE specific files
+# IDE and editor specific files
 .idea/
 .vscode/
 *.swp
