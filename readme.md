@@ -98,7 +98,7 @@ trainer = Trainer(env, args)
 results = trainer.run_agents(training=True)
 ```
 
-## 🔬 Research Features
+## Research Features
 
 ### Environments
 
