@@ -11,13 +11,13 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-[🚀 Quick Start](#-quick-start) • [💡 Examples](#-examples) • [🔬 Research Features](#-research-features)
+[Quick Start](#-quick-start) • [Examples](#-examples) • [Research Features](#-research-features)
 
 </div>
 
 ---
 
-## 🎯 Overview
+## Overview
 
 POLARIS is a multi-agent reinforcement learning framework for studying **strategic social learning**. It implements two canonical environments from economic theory and provides sophisticated neural architectures for modeling how agents learn from both private signals and social observations.
 
@@ -29,7 +29,7 @@ POLARIS introduces **Partially Observable Active Markov Games (POAMGs)**, extend
 - **Policy Gradient Theorems**: Novel gradients for belief-conditioned policies in non-stationary environments  
 - **Active Equilibrium Concepts**: Strategic reasoning about influencing others' learning processes
 
-📖 **[Read the full theoretical treatment →](docs/thesis.pdf)**
+**[Read the full theoretical treatment →](docs/thesis.pdf)**
 
 ### Key Features
 
@@ -39,7 +39,7 @@ POLARIS introduces **Partially Observable Active Markov Games (POAMGs)**, extend
 - **Continual Learning**: Synaptic Intelligence prevents catastrophic forgetting
 - **Two Environments**: Brandl social learning and Keller-Rady strategic experimentation
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -128,7 +128,7 @@ polaris-brandl --plot-states --latex-style
 polaris-strategic --plot-allocations --save-model
 ```
 
-## 💡 Examples
+## Examples
 
 ### Research Workflow
 ```bash
@@ -153,7 +153,7 @@ config = ExperimentConfig(
 )
 ```
 
-## 📊 Console Scripts Reference
+## Console Scripts Reference
 
 | Command | Purpose | Key Features |
 |---------|---------|-------------|
@@ -178,11 +178,11 @@ pytest tests/
 python -m polaris.experiments
 ```
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## 📚 Citation
+## Citation
 
 ```bibtex
 @software{polaris2025,
@@ -197,6 +197,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-[⭐ Star on GitHub](https://github.com/ecdogaroglu/polaris) • [🐛 Report Issues](https://github.com/ecdogaroglu/polaris/issues)
+[Star on GitHub](https://github.com/ecdogaroglu/polaris) • [Report Issues](https://github.com/ecdogaroglu/polaris/issues)
 
 </div> 
