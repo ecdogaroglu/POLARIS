@@ -163,7 +163,7 @@ config = ExperimentConfig(
 | `polaris-sweep` | Multi-agent comparison | Statistical analysis, confidence intervals |
 | `polaris-experiment` | Quick testing | Simplified interface |
 
-## 🛠️ Development
+## Development
 
 ```bash
 # Development installation
