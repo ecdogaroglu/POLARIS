@@ -195,8 +195,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-<div align="center">
-
-[Star on GitHub](https://github.com/ecdogaroglu/polaris) • [Report Issues](https://github.com/ecdogaroglu/polaris/issues)
-
-</div> 
