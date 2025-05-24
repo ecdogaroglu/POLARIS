@@ -169,7 +169,7 @@ config = ExperimentConfig(
 # Development installation
 git clone https://github.com/ecdogaroglu/polaris.git
 cd polaris
-pip install -e .[all]
+pip install -e .
 
 # Run tests
 pytest tests/
