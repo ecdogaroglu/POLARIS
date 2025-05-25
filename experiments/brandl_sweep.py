@@ -40,6 +40,7 @@ import argparse
 from pathlib import Path
 import matplotlib.pyplot as plt
 from scipy import stats
+from collections import Counter
 
 from polaris.config.experiment_config import (
     ExperimentConfig, AgentConfig, TrainingConfig, BrandlConfig
@@ -52,7 +53,7 @@ from polaris.utils.math import calculate_learning_rate
 AGENT_COUNTS = [1, 2, 4, 8]  # Network sizes to compare
 NETWORK_TYPES = ['complete', 'ring', 'star', 'random']  # Network types to compare
 EPISODES = 5  # Multiple episodes for confidence intervals
-HORIZON = 100  # Shorter for faster execution
+HORIZON = 50  # Shorter for faster execution
 SIGNAL_ACCURACY = 0.75
 RESULTS_DIR = Path("results/brandl_experiment/agent_performance")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -80,6 +81,7 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
         training_config = TrainingConfig(
             batch_size=32,
             buffer_capacity=100,
+            update_interval=1,  # Update networks every step instead of every 10 steps
             num_episodes=1,  # Single episode per run
             horizon=horizon
         )
@@ -172,33 +174,44 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
             'num_episodes': episodes
         }
     
-    # Calculate mean final performance across episodes for each agent
-    mean_trajectory_values = []  # Mean across entire trajectory, not just final
-    all_learning_rates = {agent_id: [] for agent_id in range(num_agents)}
-    
-    for agent_id in range(num_agents):
-        # Calculate mean trajectory value across all episodes for this agent
-        agent_trajectory_means = []
-        for ep in all_episodes_data:
-            trajectory = ep['trajectories'][agent_id]
-            agent_trajectory_means.append(np.mean(trajectory))  # Mean of entire trajectory
-        mean_trajectory_values.append(np.mean(agent_trajectory_means))
-        
-        # Collect learning rates across episodes
-        for ep in all_episodes_data:
-            all_learning_rates[agent_id].append(ep['learning_rates'][agent_id])
-    
-    # Identify slowest and fastest learners based on mean trajectory performance
-    slowest_agent_id = np.argmax(mean_trajectory_values)  # Highest mean incorrect prob = slowest
-    fastest_agent_id = np.argmin(mean_trajectory_values)  # Lowest mean incorrect prob = fastest
-    
-    # Extract trajectories for slowest and fastest agents across all episodes
-    slowest_trajectories = []
+    # Identify fastest and slowest agents for each episode separately
     fastest_trajectories = []
+    slowest_trajectories = []
+    fastest_learning_rates = []
+    slowest_learning_rates = []
     
     for ep in all_episodes_data:
-        slowest_trajectories.append(ep['trajectories'][slowest_agent_id])
-        fastest_trajectories.append(ep['trajectories'][fastest_agent_id])
+        # For this episode, find the fastest and slowest agents
+        episode_learning_rates = ep['learning_rates']
+        
+        # Identify fastest and slowest for this specific episode
+        episode_fastest_id = max(episode_learning_rates.keys(), key=lambda k: episode_learning_rates[k])
+        episode_slowest_id = min(episode_learning_rates.keys(), key=lambda k: episode_learning_rates[k])
+        
+        # Store trajectories and learning rates for this episode
+        fastest_trajectories.append(ep['trajectories'][episode_fastest_id])
+        slowest_trajectories.append(ep['trajectories'][episode_slowest_id])
+        fastest_learning_rates.append(episode_learning_rates[episode_fastest_id])
+        slowest_learning_rates.append(episode_learning_rates[episode_slowest_id])
+    
+    # Calculate overall statistics
+    mean_fastest_lr = np.mean(fastest_learning_rates)
+    mean_slowest_lr = np.mean(slowest_learning_rates)
+    
+    # For display purposes, use the most common fastest/slowest agent IDs
+    fastest_agent_counts = Counter()
+    slowest_agent_counts = Counter()
+    
+    for ep in all_episodes_data:
+        episode_learning_rates = ep['learning_rates']
+        episode_fastest_id = max(episode_learning_rates.keys(), key=lambda k: episode_learning_rates[k])
+        episode_slowest_id = min(episode_learning_rates.keys(), key=lambda k: episode_learning_rates[k])
+        fastest_agent_counts[episode_fastest_id] += 1
+        slowest_agent_counts[episode_slowest_id] += 1
+    
+    # Most common fastest and slowest agents (for labeling)
+    most_common_fastest = fastest_agent_counts.most_common(1)[0][0]
+    most_common_slowest = slowest_agent_counts.most_common(1)[0][0]
     
     # Calculate mean trajectories and confidence intervals
     def calculate_trajectory_stats(trajectories):
@@ -223,11 +236,6 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
     slowest_mean, slowest_ci_lower, slowest_ci_upper = calculate_trajectory_stats(slowest_trajectories)
     fastest_mean, fastest_ci_lower, fastest_ci_upper = calculate_trajectory_stats(fastest_trajectories)
     
-    # Calculate mean learning rates
-    mean_learning_rates = {}
-    for agent_id in range(num_agents):
-        mean_learning_rates[agent_id] = np.mean(all_learning_rates[agent_id])
-    
     agent_performance = {
         'slowest_trajectories': slowest_trajectories,
         'fastest_trajectories': fastest_trajectories,
@@ -235,9 +243,9 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
         'fastest_mean': fastest_mean,
         'slowest_ci': (slowest_ci_lower, slowest_ci_upper),
         'fastest_ci': (fastest_ci_lower, fastest_ci_upper),
-        'slowest_agent_id': int(slowest_agent_id),
-        'fastest_agent_id': int(fastest_agent_id),
-        'learning_rates': mean_learning_rates,
+        'slowest_agent_id': int(most_common_slowest),
+        'fastest_agent_id': int(most_common_fastest),
+        'learning_rates': {most_common_slowest: mean_slowest_lr, most_common_fastest: mean_fastest_lr},
         'num_episodes': episodes,
         'all_episodes_data': all_episodes_data  # Keep for detailed analysis
     }
@@ -412,8 +420,8 @@ def main():
                            color='green', alpha=0.2)
             
             plt.xlabel("Time Steps", fontsize=12, fontweight='bold')
-            plt.ylabel("Incorrect Probability", fontsize=12, fontweight='bold')
-            plt.title(f"{network_type.capitalize()} Network (n={performance['num_episodes']} episodes)", fontsize=14, fontweight='bold')
+            plt.ylabel("Incorrect ActionProbability", fontsize=12, fontweight='bold')
+            plt.title(f"{network_type.capitalize()} Network (Average over {performance['num_episodes']} episodes)", fontsize=14, fontweight='bold')
             plt.legend(fontsize=12, loc='upper right')
             plt.grid(True, alpha=0.3)
     
