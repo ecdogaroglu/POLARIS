@@ -11,17 +11,17 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-[🚀 Quick Start](#-quick-start) • [💡 Examples](#-examples) • [🔬 Research Features](#-research-features)
+[Quick Start](#-quick-start) • [Examples](#-examples) • [Research Features](#-research-features)
 
 </div>
 
 ---
 
-## 🎯 Overview
+## Overview
 
 POLARIS is a multi-agent reinforcement learning framework for studying **strategic social learning**. It implements two canonical environments from economic theory and provides sophisticated neural architectures for modeling how agents learn from both private signals and social observations.
 
-### 🧮 Theoretical Foundation
+### Theoretical Foundation
 
 POLARIS introduces **Partially Observable Active Markov Games (POAMGs)**, extending traditional multi-agent frameworks to handle strategic learning under partial observability. Key theoretical contributions include:
 
@@ -29,17 +29,17 @@ POLARIS introduces **Partially Observable Active Markov Games (POAMGs)**, extend
 - **Policy Gradient Theorems**: Novel gradients for belief-conditioned policies in non-stationary environments  
 - **Active Equilibrium Concepts**: Strategic reasoning about influencing others' learning processes
 
-📖 **[Read the full theoretical treatment →](docs/thesis.pdf)**
+**[Read the full theoretical treatment →](docs/thesis.pdf)**
 
-### 🏆 Key Features
+### Key Features
 
-- **🧠 Theoretical Foundation**: Based on Partially Observable Active Markov Games (POAMGs)
-- **🎮 Strategic Learning**: Agents influence others' learning processes under partial observability
-- **🤝 Advanced Architectures**: Graph Neural Networks, Transformers, and Temporal Attention
-- **🔄 Continual Learning**: Synaptic Intelligence prevents catastrophic forgetting
-- **📊 Two Environments**: Brandl social learning and Keller-Rady strategic experimentation
+- **Theoretical Foundation**: Based on Partially Observable Active Markov Games (POAMGs)
+- **Strategic Learning**: Agents influence others' learning processes under partial observability
+- **Advanced Architectures**: Graph Neural Networks, Transformers, and Temporal Attention
+- **Continual Learning**: Synaptic Intelligence prevents catastrophic forgetting
+- **Two Environments**: Brandl social learning and Keller-Rady strategic experimentation
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -98,9 +98,9 @@ trainer = Trainer(env, args)
 results = trainer.run_agents(training=True)
 ```
 
-## 🔬 Research Features
+## Research Features
 
-### 🌍 Environments
+### Environments
 
 **Brandl Social Learning**: Agents learn about a hidden state through private signals and social observation
 - Discrete actions, configurable networks, theoretical bounds analysis
@@ -108,13 +108,13 @@ results = trainer.run_agents(training=True)
 **Strategic Experimentation (Keller-Rady)**: Agents allocate resources between safe and risky options
 - Continuous actions, Lévy processes, exploration-exploitation trade-offs
 
-### 🧠 Neural Architectures
+### Neural Architectures
 
 - **Graph Neural Networks**: Temporal attention over social networks
 - **Transformers**: Advanced belief state processing
 - **Variational Inference**: Opponent modeling and belief updating
 
-### 🎯 Advanced Features
+### Advanced Features
 
 ```bash
 # Graph Neural Networks with temporal attention
@@ -128,7 +128,7 @@ polaris-brandl --plot-states --latex-style
 polaris-strategic --plot-allocations --save-model
 ```
 
-## 💡 Examples
+## Examples
 
 ### Research Workflow
 ```bash
@@ -153,7 +153,7 @@ config = ExperimentConfig(
 )
 ```
 
-## 📊 Console Scripts Reference
+## Console Scripts Reference
 
 | Command | Purpose | Key Features |
 |---------|---------|-------------|
@@ -163,13 +163,13 @@ config = ExperimentConfig(
 | `polaris-sweep` | Multi-agent comparison | Statistical analysis, confidence intervals |
 | `polaris-experiment` | Quick testing | Simplified interface |
 
-## 🛠️ Development
+## Development
 
 ```bash
 # Development installation
 git clone https://github.com/ecdogaroglu/polaris.git
 cd polaris
-pip install -e .[all]
+pip install -e .
 
 # Run tests
 pytest tests/
@@ -178,11 +178,11 @@ pytest tests/
 python -m polaris.experiments
 ```
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## 📚 Citation
+## Citation
 
 ```bibtex
 @software{polaris2025,
@@ -193,10 +193,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 }
 ```
 
----
 
-<div align="center">
 
-[⭐ Star on GitHub](https://github.com/ecdogaroglu/polaris) • [🐛 Report Issues](https://github.com/ecdogaroglu/polaris/issues)
-
-</div> 
