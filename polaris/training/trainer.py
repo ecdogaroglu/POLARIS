@@ -249,15 +249,16 @@ class Trainer:
         if self.args.save_model:
             save_final_models(self.agents, self.output_dir)
         
-        # Generate plots with LaTeX style if requested
-        self.plotter.generate_all_plots(
-            combined_metrics,
-            self.env,
-            self.args,
-            self.output_dir,
-            training=True,
-            episodic_metrics=episodic_metrics,
-        )
+        # Generate plots with LaTeX style if requested (skip if plotting is disabled)
+        if not getattr(self.args, 'disable_plotting', False):
+            self.plotter.generate_all_plots(
+                combined_metrics,
+                self.env,
+                self.args,
+                self.output_dir,
+                training=True,
+                episodic_metrics=episodic_metrics,
+            )
 
         return episodic_metrics, serializable_metrics
 

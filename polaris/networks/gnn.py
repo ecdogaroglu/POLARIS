@@ -750,6 +750,10 @@ class TemporalGNN(nn.Module):
     def _construct_graph(self, signals, neighbor_actions, agent_id=0):
         """
         Construct a graph from signals and neighbor actions.
+        
+        The network topology is inferred from the neighbor_actions tensor:
+        - Non-zero entries indicate actual neighbors (edges exist)
+        - Zero entries indicate non-neighbors (no edges)
 
         Args:
             signals: Tensor of shape [batch_size, num_belief_states] or [batch_size, 1] for continuous signals
@@ -837,24 +841,40 @@ class TemporalGNN(nn.Module):
         # Stack node features
         node_features = torch.stack(node_features).to(self.device)
 
-        # Create fully connected edge indices (each agent connects to every other agent)
+        # Create edge indices based on the network topology encoded in neighbor_actions
+        # Only create edges where neighbor_actions has non-zero values
         edge_indices = []
         nodes_per_batch = self.num_agents
 
         for b in range(batch_size):
             batch_offset = b * nodes_per_batch
-            for i in range(nodes_per_batch):
-                for j in range(nodes_per_batch):
+            
+            # For each agent, check which neighbors have non-zero actions
+            for i in range(self.num_agents):
+                for j in range(self.num_agents):
                     if i != j:  # No self-loops
-                        edge_indices.append([batch_offset + i, batch_offset + j])
+                        # Check if agent i can observe agent j (j has non-zero action in i's observation)
+                        if using_continuous_actions:
+                            # For continuous actions, check if the action value is non-zero
+                            has_connection = neighbor_actions_reshaped[b, j].abs() > 1e-6
+                        else:
+                            # For discrete actions, check if any action dimension is non-zero
+                            has_connection = neighbor_actions_reshaped[b, j].abs().sum() > 1e-6
+                        
+                        if has_connection:
+                            edge_indices.append([batch_offset + i, batch_offset + j])
 
         # Convert to tensor
-        edge_index = (
-            torch.tensor(edge_indices, dtype=torch.long)
-            .t()
-            .contiguous()
-            .to(self.device)
-        )
+        if len(edge_indices) > 0:
+            edge_index = (
+                torch.tensor(edge_indices, dtype=torch.long)
+                .t()
+                .contiguous()
+                .to(self.device)
+            )
+        else:
+            # If no edges, create empty edge index tensor
+            edge_index = torch.empty((2, 0), dtype=torch.long, device=self.device)
 
         return node_features, edge_index, is_continuous_signal
 

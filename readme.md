@@ -70,8 +70,11 @@ polaris-brandl --agents 8 --signal-accuracy 0.75 --plot-states --latex-style
 # Strategic experimentation with allocations
 polaris-strategic --agents 2 --horizon 10000 --plot-allocations --use-gnn
 
-# Comparative analysis across agent counts
-polaris-sweep --agent-counts 2 3 4 5 --horizon 400
+# Individual agent performance analysis (Brandl social learning)
+python experiments/brandl_sweep.py --agent-counts 1 2 4 6 8 10 --network-types complete ring star random --episodes 5
+
+# Multi-agent comparison analysis (Keller-Rady strategic experimentation)
+python experiments/keller_rady_sweep.py --agent-counts 2 3 4 5 6 7 8 --episodes 3
 
 # List all available scripts and examples
 python -m polaris.experiments
@@ -128,6 +131,64 @@ polaris-brandl --plot-states --latex-style
 polaris-strategic --plot-allocations --save-model
 ```
 
+### Sweep Analysis Scripts
+
+POLARIS provides two specialized sweep scripts for comprehensive analysis across different experimental conditions:
+
+#### **Brandl Social Learning Sweep**
+
+The `brandl_sweep.py` script analyzes individual agent learning performance across network topologies:
+
+```bash
+# Basic usage - analyze learning across network sizes and types
+python experiments/brandl_sweep.py
+
+# Custom configuration with multiple episodes for statistical analysis
+python experiments/brandl_sweep.py \
+    --agent-counts 1 2 4 6 8 10 \
+    --network-types complete ring star random \
+    --episodes 5 \
+    --horizon 100 \
+    --signal-accuracy 0.75
+```
+
+**Key Features:**
+- **Learning Rate Calculation**: Computes individual learning rates (r) using log-linear regression
+- **Statistical Analysis**: Multiple episodes with 95% confidence intervals
+- **Extreme Agent Focus**: Shows only fastest (green) and slowest (red) learners to avoid plot overcrowding
+- **Agent Resetting**: Proper agent state reset between episodes to prevent information leakage
+- **Network Topology Comparison**: Analyzes performance across complete, ring, star, and random networks
+
+**Generated Outputs:**
+- `fastest_slowest_network_sizes_evolution.png` - Fastest/slowest trajectories with CIs across network sizes
+- `fastest_slowest_network_types_evolution.png` - Fastest/slowest trajectories with CIs across network types
+- `agent_performance_results.json` - Complete numerical results with learning rates and confidence intervals
+
+#### **Keller-Rady Strategic Experimentation Sweep**
+
+The `keller_rady_sweep.py` script compares aggregate performance across different agent counts:
+
+```bash
+# Basic usage - compare performance across agent counts
+python experiments/keller_rady_sweep.py
+
+# Custom configuration  
+python experiments/keller_rady_sweep.py \
+    --agent-counts 2 3 4 5 6 7 8 \
+    --episodes 3 \
+    --horizon 100
+```
+
+**Key Features:**
+- **Multi-Agent Comparison**: Analyzes how performance scales with agent count
+- **Statistical Analysis**: Provides confidence intervals across multiple episodes
+- **Cumulative Allocation Tracking**: Shows resource allocation patterns over time
+- **Convergence Analysis**: Studies how quickly agents reach optimal strategies
+
+**Generated Outputs:**
+- `average_cumulative_allocation_per_agent_over_time.png` - Allocation trends with confidence intervals
+- Detailed performance metrics for each agent count configuration
+
 ## Examples
 
 ### Research Workflow
@@ -138,8 +199,11 @@ polaris-brandl --agents 8 --signal-accuracy 0.75 --use-gnn --plot-states
 # 2. Strategic experimentation
 polaris-strategic --agents 2 --horizon 10000 --plot-allocations --latex-style
 
-# 3. Comparative analysis
-polaris-sweep --agent-counts 2 3 4 5 6 7 8 --episodes 3
+# 3. Individual agent analysis (Brandl)
+python experiments/brandl_sweep.py --agent-counts 2 4 6 8 --network-types complete ring star --episodes 5
+
+# 4. Multi-agent comparison (Keller-Rady)
+python experiments/keller_rady_sweep.py --agent-counts 2 3 4 5 6 7 8 --episodes 3
 ```
 
 ### Advanced Configuration
@@ -160,7 +224,8 @@ config = ExperimentConfig(
 | `polaris-simulate` | General experimentation | Flexible, all environments |
 | `polaris-brandl` | Social learning research | Theoretical bounds, belief analysis |
 | `polaris-strategic` | Strategic experimentation | Allocation plots, KL divergence |
-| `polaris-sweep` | Multi-agent comparison | Statistical analysis, confidence intervals |
+| `experiments/brandl_sweep.py` | Multi-agent comparison (Brandl) | Learning rates, trajectory comparison, network topology effects, confidence intervals |
+| `experiments/keller_rady_sweep.py` | Multi-agent comparison (Keller-Rady) | Cumulative allocations |
 | `polaris-experiment` | Quick testing | Simplified interface |
 
 ## Development

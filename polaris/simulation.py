@@ -52,6 +52,9 @@ def run_experiment(env, config) -> Tuple[Dict, Dict]:
         args.use_tex = getattr(config, "use_tex", False)
         args.save_model = config.save_model
         args.seed = config.environment.seed
+        
+        # Custom plotting control
+        args.disable_plotting = getattr(config, "disable_plotting", False)
 
         # Environment specific args
         args.network_type = config.environment.network_type
