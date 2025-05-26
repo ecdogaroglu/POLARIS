@@ -65,7 +65,7 @@ RESULTS_DIR = Path("results/brandl_experiment/agent_performance")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_accuracy, seed=0, device='cpu'):
+def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_accuracy, seed=0, device='cpu', use_gnn=True):
     """Run Brandl experiment for multiple episodes and return individual agent performance metrics with confidence intervals."""
     
     # Store results from all episodes
@@ -80,7 +80,7 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
         agent_config = AgentConfig(
             learning_rate=1e-3,
             discount_factor=0.99,
-            use_gnn=True,
+            use_gnn=use_gnn,
             use_si=False
         )
         
@@ -176,6 +176,18 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
                                 else:
                                     episode_signals.append(np.array(step_signals))
                     
+                    # Extract attention weights if available
+                    episode_attention_weights = []
+                    if 'attention_weights' in episode_data:
+                        attention_data = episode_data['attention_weights']
+                        if len(attention_data) > 0:
+                            # attention_data should be a list of attention matrices, one per time step
+                            for step_attention in attention_data:
+                                if isinstance(step_attention, np.ndarray):
+                                    episode_attention_weights.append(step_attention.copy())
+                                else:
+                                    episode_attention_weights.append(np.array(step_attention))
+                    
                     all_episodes_data.append({
                         'trajectories': episode_trajectories,
                         'learning_rates': episode_learning_rates,
@@ -184,6 +196,7 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
                         'true_state': env.true_state,
                         'network_matrix': env.network.copy(),
                         'signals': episode_signals,
+                        'attention_weights': episode_attention_weights,
                         'network_type': network_type,
                         'num_agents': num_agents
                     })
@@ -277,15 +290,29 @@ def plot_network_positions(results, args):
     """Create network graph plots showing frequency of slowest agents at each position."""
     print("Creating network position analysis plots...")
     
+    # Only analyze star and random networks (complete and ring don't have meaningful position differences)
+    relevant_networks = ['star', 'random']
+    available_networks = [nt for nt in relevant_networks if nt in args.network_types]
+    
+    if not available_networks:
+        print("No relevant network types (star, random) found for position analysis. Skipping...")
+        return
+    
     # Create network graphs showing slowest agent frequencies
-    fig, axes = plt.subplots(2, 2, figsize=(20, 16))
-    axes = axes.flatten()
+    n_networks = len(available_networks)
+    n_cols = min(2, n_networks)
+    n_rows = (n_networks + n_cols - 1) // n_cols
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(10 * n_cols, 8 * n_rows))
+    if n_networks == 1:
+        axes = [axes]
+    elif n_networks <= 2:
+        axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+    else:
+        axes = axes.flatten()
     
     plot_idx = 0
-    for network_type in args.network_types:
-        if plot_idx >= 4:
-            break
-            
+    for network_type in available_networks:
         ax = axes[plot_idx]
         
         # Find the largest network size for this network type to use as the representative
@@ -360,36 +387,38 @@ def plot_network_positions(results, args):
         plot_idx += 1
     
     # Hide unused subplots
-    for i in range(plot_idx, 4):
-        axes[i].set_visible(False)
+    if len(axes) > plot_idx:
+        for i in range(plot_idx, len(axes)):
+            axes[i].set_visible(False)
     
-    # Add a centered color legend between the two rows of plots
-    from matplotlib.colors import LinearSegmentedColormap
+    # Add a centered color legend (only if we have plots)
+    if plot_idx > 0:
+        from matplotlib.colors import LinearSegmentedColormap
+        
+        # Position the legend below the plots with more space
+        legend_x = 0.35  # Center horizontally
+        legend_y = 0.15  # Position below the plots
+        legend_width = 0.3
+        legend_height = 0.04
+        
+        # Create gradient rectangle using figure coordinates
+        gradient = np.linspace(0, 1, 100).reshape(1, -1)
+        
+        # Add the legend to the figure (not to a specific axis)
+        fig_legend_ax = fig.add_axes([legend_x, legend_y, legend_width, legend_height])
+        fig_legend_ax.imshow(gradient, aspect='auto', cmap='Reds', alpha=0.8)
+        fig_legend_ax.set_xlim(0, 100)
+        fig_legend_ax.set_ylim(0, 1)
+        fig_legend_ax.set_xticks([0, 100])
+        fig_legend_ax.set_xticklabels(['0%', 'Max%'], fontsize=12, fontweight='bold')
+        fig_legend_ax.set_yticks([])
+        fig_legend_ax.set_xlabel('Slowest Agent Frequency', fontsize=13, fontweight='bold', labelpad=10)
+        
+        # Remove the box around the legend
+        for spine in fig_legend_ax.spines.values():
+            spine.set_visible(False)
     
-    # Position the legend in the center of the figure, between the two rows
-    legend_x = 0.35  # Center horizontally
-    legend_y = 0.48  # Position between the two rows
-    legend_width = 0.3
-    legend_height = 0.04
-    
-    # Create gradient rectangle using figure coordinates
-    gradient = np.linspace(0, 1, 100).reshape(1, -1)
-    
-    # Add the legend to the figure (not to a specific axis)
-    fig_legend_ax = fig.add_axes([legend_x, legend_y, legend_width, legend_height])
-    fig_legend_ax.imshow(gradient, aspect='auto', cmap='Reds', alpha=0.8)
-    fig_legend_ax.set_xlim(0, 100)
-    fig_legend_ax.set_ylim(0, 1)
-    fig_legend_ax.set_xticks([0, 100])
-    fig_legend_ax.set_xticklabels(['0%', 'Max%'], fontsize=12, fontweight='bold')
-    fig_legend_ax.set_yticks([])
-    fig_legend_ax.set_xlabel('Slowest Agent Frequency', fontsize=13, fontweight='bold', labelpad=10)
-    
-    # Remove the box around the legend
-    for spine in fig_legend_ax.spines.values():
-        spine.set_visible(False)
-    
-    plt.suptitle('Network Position Analysis: Frequency of Being Slowest Agent', 
+    plt.suptitle('Network Position Analysis: Frequency of Being Slowest Agent (Star & Random Networks)', 
                  fontsize=18, fontweight='bold', y=0.95)
     plt.tight_layout(rect=[0, 0, 1, 0.92])
     
@@ -704,7 +733,7 @@ def plot_signal_quality_vs_learning_performance(results, args):
         y_pred = slope * x_range + intercept
         
         ax2.plot(x_range, y_pred, 'k--', alpha=0.8, linewidth=2, 
-                label=f'Regression (R²={r_value**2:.3f}, p={p_value:.3f})')
+                label=f'Regression (p={p_value:.3f})')
         
     
     ax2.set_xlabel('Average Signal Correctness', fontweight='bold', fontsize=12)
@@ -721,6 +750,152 @@ def plot_signal_quality_vs_learning_performance(results, args):
     plot_path = RESULTS_DIR / "signal_quality_vs_learning_performance.png"
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     print(f"Saved dedicated signal quality vs learning performance plot to {plot_path}")
+    plt.close()
+
+
+def plot_neighbor_count_vs_learning_performance(results, args):
+    """Create plots showing neighbor count vs learning performance with fastest/slowest distinction."""
+    print("Creating neighbor count vs learning performance plots...")
+    
+    # Only analyze star and random networks (complete and ring don't have meaningful neighbor count variations)
+    relevant_networks = ['star', 'random']
+    available_networks = [nt for nt in relevant_networks if nt in args.network_types]
+    
+    if not available_networks:
+        print("No relevant network types (star, random) found for neighbor count analysis. Skipping...")
+        return
+    
+    # Collect data for analysis
+    all_agent_data = []
+    
+    for network_type in available_networks:
+        for num_agents in args.agent_counts:
+            if num_agents <= 2:  # Skip autarky and 2 agents (not meaningful for neighbor analysis)
+                continue
+                
+            performance = results[network_type][num_agents]
+            if performance['slowest_mean'] is None:
+                continue
+                
+            for ep_idx, ep_data in enumerate(performance['all_episodes_data']):
+                network_matrix = ep_data['network_matrix']
+                learning_rates = ep_data['learning_rates']
+                
+                # Get fastest and slowest agent IDs for this episode
+                slowest_agent_id = performance['slowest_positions'][ep_idx]
+                fastest_agent_id = max(learning_rates.keys(), key=lambda k: learning_rates[k])
+                
+                # Calculate neighbor count for each agent
+                for agent_id in range(num_agents):
+                    neighbor_count = np.sum(network_matrix[agent_id])  # Number of neighbors
+                    agent_lr = learning_rates.get(agent_id, 0.0)
+                    
+                    # Determine agent category
+                    if agent_id == slowest_agent_id:
+                        agent_category = 'slowest'
+                    elif agent_id == fastest_agent_id:
+                        agent_category = 'fastest'
+                    else:
+                        agent_category = 'other'
+                    
+                    all_agent_data.append({
+                        'network_type': network_type,
+                        'num_agents': num_agents,
+                        'agent_id': agent_id,
+                        'episode': ep_idx,
+                        'neighbor_count': neighbor_count,
+                        'learning_rate': agent_lr,
+                        'agent_category': agent_category,
+                        'final_incorrect_prob': ep_data['trajectories'][agent_id][-1]
+                    })
+    
+    if not all_agent_data:
+        print("No neighbor count data available for analysis")
+        return
+    
+    # Create a single plot combining 4 and 8 agents with star and random networks
+    valid_agent_counts = [n for n in args.agent_counts if n > 2]  # Exclude autarky and 2 agents
+    
+    if not valid_agent_counts:
+        print("No valid agent counts (>2) found for neighbor count analysis. Skipping...")
+        return
+    
+    # Create 2x2 subplot: 2 network types × 2 agent counts
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    axes = axes.flatten()
+    
+    plot_idx = 0
+    for network_type in available_networks:
+        for num_agents in valid_agent_counts[:2]:  # Take first 2 valid agent counts (typically 4 and 8)
+            if plot_idx >= 4:
+                break
+                
+            ax = axes[plot_idx]
+            
+            # Filter data for this specific size and network type
+            type_data = [d for d in all_agent_data if d['network_type'] == network_type and d['num_agents'] == num_agents]
+            
+            if not type_data:
+                ax.set_visible(False)
+                plot_idx += 1
+                continue
+            
+            slowest_data = [d for d in type_data if d['agent_category'] == 'slowest']
+            fastest_data = [d for d in type_data if d['agent_category'] == 'fastest']
+            other_data = [d for d in type_data if d['agent_category'] == 'other']
+            
+            # Plot data points
+            if slowest_data:
+                slowest_neighbors = [d['neighbor_count'] for d in slowest_data]
+                slowest_lrs = [d['learning_rate'] for d in slowest_data]
+                ax.scatter(slowest_neighbors, slowest_lrs, c='red', alpha=0.8, s=80, label='Slowest Agents', edgecolors='darkred', linewidth=1)
+            
+            if fastest_data:
+                fastest_neighbors = [d['neighbor_count'] for d in fastest_data]
+                fastest_lrs = [d['learning_rate'] for d in fastest_data]
+                ax.scatter(fastest_neighbors, fastest_lrs, c='green', alpha=0.8, s=80, label='Fastest Agents', edgecolors='darkgreen', linewidth=1)
+            
+            if other_data:
+                other_neighbors = [d['neighbor_count'] for d in other_data]
+                other_lrs = [d['learning_rate'] for d in other_data]
+                ax.scatter(other_neighbors, other_lrs, c='lightblue', alpha=0.6, s=50, label='Other Agents', edgecolors='blue', linewidth=0.5)
+            
+            # Add regression line and p-value if we have enough data points
+            if len(type_data) > 2:
+                all_neighbors = [d['neighbor_count'] for d in type_data]
+                all_lrs = [d['learning_rate'] for d in type_data]
+                
+                # Check if there's variation in neighbor counts (avoid regression on constant x)
+                if len(set(all_neighbors)) > 1:
+                    # Perform linear regression
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(all_neighbors, all_lrs)
+                    
+                    # Create regression line
+                    x_range = np.linspace(min(all_neighbors), max(all_neighbors), 100)
+                    y_pred = slope * x_range + intercept
+                    
+                    ax.plot(x_range, y_pred, 'k--', alpha=0.8, linewidth=2, 
+                           label=f'p={p_value:.3f}')
+            
+            ax.set_xlabel('Number of Neighbors', fontweight='bold', fontsize=12)
+            ax.set_ylabel('Learning Rate', fontweight='bold', fontsize=12)
+            ax.set_title(f'{network_type.capitalize()} Network ({num_agents} Agents)', fontweight='bold', fontsize=14)
+            ax.legend(fontsize=10)
+            ax.grid(True, alpha=0.3)
+            
+            plot_idx += 1
+    
+    # Hide unused subplots
+    for i in range(plot_idx, 4):
+        axes[i].set_visible(False)
+    
+    plt.suptitle('Neighbor Count vs Learning Rate Analysis\n(Star & Random Networks)', 
+                 fontsize=16, fontweight='bold')
+    plt.tight_layout()
+    
+    plot_path = RESULTS_DIR / "neighbor_count_vs_learning_performance.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Saved neighbor count vs learning performance plot to {plot_path}")
     plt.close()
 
 
@@ -862,6 +1037,421 @@ def plot_temporal_signal_analysis(results, args):
     plt.close()
 
 
+def plot_attention_analysis(results, args):
+    """Create plots showing which agents receive the most attention, similar to network position analysis."""
+    print("Creating attention analysis plots...")
+    
+    # Check if we have any attention data at all
+    has_attention_data = False
+    for network_type in args.network_types:
+        for num_agents in args.agent_counts:
+            if num_agents == 1:  # Skip autarky
+                continue
+            performance = results.get(network_type, {}).get(num_agents, {})
+            if performance.get('slowest_mean') is not None:
+                for ep_data in performance.get('all_episodes_data', []):
+                    if 'attention_weights' in ep_data and len(ep_data['attention_weights']) > 0:
+                        has_attention_data = True
+                        break
+                if has_attention_data:
+                    break
+        if has_attention_data:
+            break
+    
+    if not has_attention_data:
+        print("⚠️  No attention weights data found in the results.")
+        print("   This analysis requires GNN-enabled agents to capture attention weights.")
+        print("   Make sure you're running experiments with --use-gnn flag enabled.")
+        print("   Skipping attention analysis...")
+        return
+    
+    # Collect attention data across all configurations
+    attention_data = {}
+    
+    for network_type in args.network_types:
+        attention_data[network_type] = {}
+        
+        for num_agents in args.agent_counts:
+            if num_agents == 1:  # Skip autarky
+                continue
+                
+            performance = results[network_type][num_agents]
+            if performance['slowest_mean'] is None:
+                continue
+                
+            # Extract attention data from all episodes
+            all_episode_attention = []
+            
+            for ep_idx, ep_data in enumerate(performance['all_episodes_data']):
+                if 'attention_weights' in ep_data and len(ep_data['attention_weights']) > 0:
+                    # ep_data['attention_weights'] should be a list of attention matrices, one per time step
+                    episode_attention = ep_data['attention_weights']
+                    
+                    # Calculate average attention received by each agent over time
+                    agent_attention_received = np.zeros(num_agents)
+                    
+                    for step_attention in episode_attention:
+                        if isinstance(step_attention, np.ndarray) and step_attention.shape == (num_agents, num_agents):
+                            # Sum attention received by each agent (column-wise sum)
+                            agent_attention_received += np.sum(step_attention, axis=0)
+                    
+                    # Normalize by number of time steps
+                    if len(episode_attention) > 0:
+                        agent_attention_received /= len(episode_attention)
+                        all_episode_attention.append(agent_attention_received)
+            
+            if len(all_episode_attention) > 0:
+                attention_data[network_type][num_agents] = all_episode_attention
+
+    # Check if we have any valid attention data after processing
+    total_configs_with_data = sum(len(configs) for configs in attention_data.values())
+    if total_configs_with_data == 0:
+        print("⚠️  No valid attention data found after processing.")
+        print("   This could happen if attention weights are not properly captured or")
+        print("   if the attention matrices don't have the expected shape.")
+        print("   Skipping attention analysis...")
+        return
+    
+    print(f"✅ Found attention data for {total_configs_with_data} configurations")
+    
+    # Only analyze star and random networks (similar to network position analysis)
+    relevant_networks = ['star', 'random']
+    available_networks = [nt for nt in relevant_networks if nt in args.network_types and nt in attention_data]
+    
+    if not available_networks:
+        print("No relevant network types (star, random) found for attention analysis. Skipping...")
+        return
+    
+    # Create network graphs showing attention frequencies (similar to network position plot)
+    n_networks = len(available_networks)
+    n_cols = min(2, n_networks)
+    n_rows = (n_networks + n_cols - 1) // n_cols
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(10 * n_cols, 8 * n_rows))
+    if n_networks == 1:
+        axes = [axes]
+    elif n_networks <= 2:
+        axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+    else:
+        axes = axes.flatten()
+    
+    plot_idx = 0
+    for network_type in available_networks:
+        ax = axes[plot_idx]
+        
+        # Find the largest network size for this network type to use as the representative
+        agent_counts = sorted([ac for ac in attention_data.get(network_type, {}).keys() if ac > 1])
+        if not agent_counts:
+            plot_idx += 1
+            continue
+            
+        # Use the largest network size for visualization
+        num_agents = agent_counts[-1]
+        
+        if num_agents not in attention_data[network_type]:
+            plot_idx += 1
+            continue
+            
+        episode_attention_data = attention_data[network_type][num_agents]
+        performance = results[network_type][num_agents]
+        
+        # Get network matrix from the first episode
+        network_matrix = performance['all_episodes_data'][0]['network_matrix']
+        
+        # Calculate average attention received by each agent across all episodes
+        avg_attention_received = np.mean(episode_attention_data, axis=0)
+        
+        # Create NetworkX graph
+        G = nx.from_numpy_array(network_matrix)
+        
+        # Calculate node positions based on network type with proper scaling
+        if network_type == 'complete':
+            pos = nx.circular_layout(G, scale=0.8)
+        elif network_type == 'ring':
+            pos = nx.circular_layout(G, scale=0.8)
+        elif network_type == 'star':
+            pos = nx.spring_layout(G, k=1.5, iterations=100, scale=0.8)
+        elif network_type == 'random':
+            pos = nx.spring_layout(G, k=1.0, iterations=100, scale=0.8)
+        else:
+            pos = nx.spring_layout(G, scale=0.8)
+        
+        # Normalize attention values to [0, 1] for color mapping
+        max_attention = np.max(avg_attention_received) if len(avg_attention_received) > 0 else 1
+        min_attention = np.min(avg_attention_received) if len(avg_attention_received) > 0 else 0
+        
+        # Create node colors based on attention received (white to red gradient)
+        node_colors = []
+        for node in range(num_agents):
+            attention = avg_attention_received[node]
+            # Normalize to [0, 1]
+            if max_attention > min_attention:
+                intensity = (attention - min_attention) / (max_attention - min_attention)
+            else:
+                intensity = 0.5
+            # Color gradient from white (low attention) to red (high attention)
+            node_colors.append((1.0, 1.0 - intensity, 1.0 - intensity))  # RGB: white to red
+        
+        # Draw the network with larger nodes and black frames
+        nx.draw_networkx_edges(G, pos, ax=ax, alpha=0.7, width=3.5, edge_color='gray')
+        nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors, 
+                              node_size=2500, alpha=0.9, edgecolors='black', linewidths=2)
+        
+        # Add labels showing attention values with better formatting
+        labels = {}
+        for node in range(num_agents):
+            attention = avg_attention_received[node]
+            labels[node] = f'{attention:.2f}'
+        
+        nx.draw_networkx_labels(G, pos, labels, ax=ax, font_size=18, font_weight='bold', 
+                               font_color='black')
+        
+        ax.set_title(f'{network_type.capitalize()} Network ({num_agents} agents)\nAverage Attention Received', 
+                    fontweight='bold', fontsize=16)
+        ax.set_xlim(-1.2, 1.2)
+        ax.set_ylim(-1.2, 1.2)
+        ax.axis('off')
+        
+        plot_idx += 1
+    
+    # Hide unused subplots
+    if len(axes) > plot_idx:
+        for i in range(plot_idx, len(axes)):
+            axes[i].set_visible(False)
+    
+    # Add a centered color legend (only if we have plots)
+    if plot_idx > 0:
+        from matplotlib.colors import LinearSegmentedColormap
+        
+        # Position the legend below the plots with more space
+        legend_x = 0.35  # Center horizontally
+        legend_y = 0.15  # Position below the plots
+        legend_width = 0.3
+        legend_height = 0.04
+        
+        # Create gradient rectangle using figure coordinates
+        gradient = np.linspace(0, 1, 100).reshape(1, -1)
+        
+        # Add the legend to the figure (not to a specific axis)
+        fig_legend_ax = fig.add_axes([legend_x, legend_y, legend_width, legend_height])
+        fig_legend_ax.imshow(gradient, aspect='auto', cmap='Reds', alpha=0.8)
+        fig_legend_ax.set_xlim(0, 100)
+        fig_legend_ax.set_ylim(0, 1)
+        fig_legend_ax.set_xticks([0, 100])
+        fig_legend_ax.set_xticklabels(['Low', 'High'], fontsize=12, fontweight='bold')
+        fig_legend_ax.set_yticks([])
+        fig_legend_ax.set_xlabel('Attention Received', fontsize=13, fontweight='bold', labelpad=10)
+        
+        # Remove the box around the legend
+        for spine in fig_legend_ax.spines.values():
+            spine.set_visible(False)
+    
+    plt.suptitle('Attention Analysis: Average Attention Received by Each Agent (Star & Random Networks)', 
+                 fontsize=18, fontweight='bold', y=0.95)
+    plt.tight_layout(rect=[0, 0, 1, 0.92])
+    
+    plot_path = RESULTS_DIR / "attention_analysis.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Saved attention analysis to {plot_path}")
+    plt.close()
+
+
+def plot_attention_vs_learning_performance(results, args):
+    """Create plots showing attention received vs learning performance with fastest/slowest distinction."""
+    print("Creating attention received vs learning performance plots...")
+    
+    # Check if we have any attention data at all
+    has_attention_data = False
+    for network_type in args.network_types:
+        for num_agents in args.agent_counts:
+            if num_agents == 1:  # Skip autarky
+                continue
+            performance = results.get(network_type, {}).get(num_agents, {})
+            if performance.get('slowest_mean') is not None:
+                for ep_data in performance.get('all_episodes_data', []):
+                    if 'attention_weights' in ep_data and len(ep_data['attention_weights']) > 0:
+                        has_attention_data = True
+                        break
+                if has_attention_data:
+                    break
+        if has_attention_data:
+            break
+    
+    if not has_attention_data:
+        print("⚠️  No attention weights data found in the results.")
+        print("   This analysis requires GNN-enabled agents to capture attention weights.")
+        print("   Make sure you're running experiments with --use-gnn flag enabled.")
+        print("   Skipping attention vs learning performance analysis...")
+        return
+    
+    # Collect data for analysis
+    all_agent_data = []
+    
+    for network_type in args.network_types:
+        for num_agents in args.agent_counts:
+            if num_agents == 1:  # Skip autarky
+                continue
+                
+            performance = results[network_type][num_agents]
+            if performance['slowest_mean'] is None:
+                continue
+                
+            for ep_idx, ep_data in enumerate(performance['all_episodes_data']):
+                if 'attention_weights' in ep_data and len(ep_data['attention_weights']) > 0:
+                    episode_attention = ep_data['attention_weights']
+                    learning_rates = ep_data['learning_rates']
+                    
+                    # Get fastest and slowest agent IDs for this episode
+                    slowest_agent_id = performance['slowest_positions'][ep_idx]
+                    fastest_agent_id = max(learning_rates.keys(), key=lambda k: learning_rates[k])
+                    
+                    # Calculate average attention received by each agent
+                    agent_attention_received = np.zeros(num_agents)
+                    
+                    for step_attention in episode_attention:
+                        if isinstance(step_attention, np.ndarray) and step_attention.shape == (num_agents, num_agents):
+                            # Sum attention received by each agent (column-wise sum)
+                            agent_attention_received += np.sum(step_attention, axis=0)
+                    
+                    # Normalize by number of time steps
+                    if len(episode_attention) > 0:
+                        agent_attention_received /= len(episode_attention)
+                        
+                        # Store data for each agent
+                        for agent_id in range(num_agents):
+                            agent_lr = learning_rates.get(agent_id, 0.0)
+                            attention_received = agent_attention_received[agent_id]
+                            
+                            # Determine agent category
+                            if agent_id == slowest_agent_id:
+                                agent_category = 'slowest'
+                            elif agent_id == fastest_agent_id:
+                                agent_category = 'fastest'
+                            else:
+                                agent_category = 'other'
+                            
+                            all_agent_data.append({
+                                'network_type': network_type,
+                                'num_agents': num_agents,
+                                'agent_id': agent_id,
+                                'episode': ep_idx,
+                                'attention_received': attention_received,
+                                'learning_rate': agent_lr,
+                                'agent_category': agent_category,
+                                'final_incorrect_prob': ep_data['trajectories'][agent_id][-1]
+                            })
+    
+    if not all_agent_data:
+        print("No attention vs learning performance data available for analysis")
+        return
+    
+    # Create two plots: Size comparison and Type comparison
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # Plot 1: Attention vs Learning Rate - Size Comparison
+    ax1 = axes[0]
+    
+    # Use the first network type for size comparison
+    primary_network = args.network_types[0]
+    size_data = [d for d in all_agent_data if d['network_type'] == primary_network]
+    
+    slowest_data = [d for d in size_data if d['agent_category'] == 'slowest']
+    fastest_data = [d for d in size_data if d['agent_category'] == 'fastest']
+    other_data = [d for d in size_data if d['agent_category'] == 'other']
+    
+    if slowest_data:
+        slowest_attention = [d['attention_received'] for d in slowest_data]
+        slowest_lrs = [d['learning_rate'] for d in slowest_data]
+        ax1.scatter(slowest_attention, slowest_lrs, c='red', alpha=0.8, s=80, label='Slowest Agents', edgecolors='darkred', linewidth=1)
+    
+    if fastest_data:
+        fastest_attention = [d['attention_received'] for d in fastest_data]
+        fastest_lrs = [d['learning_rate'] for d in fastest_data]
+        ax1.scatter(fastest_attention, fastest_lrs, c='green', alpha=0.8, s=80, label='Fastest Agents', edgecolors='darkgreen', linewidth=1)
+    
+    if other_data:
+        other_attention = [d['attention_received'] for d in other_data]
+        other_lrs = [d['learning_rate'] for d in other_data]
+        ax1.scatter(other_attention, other_lrs, c='lightblue', alpha=0.6, s=50, label='Other Agents', edgecolors='blue', linewidth=0.5)
+    
+    # Add regression line and p-value for size comparison
+    if len(size_data) > 2:
+        all_attention = [d['attention_received'] for d in size_data]
+        all_lrs = [d['learning_rate'] for d in size_data]
+        
+        # Perform linear regression
+        slope, intercept, r_value, p_value, std_err = stats.linregress(all_attention, all_lrs)
+        
+        # Create regression line
+        x_range = np.linspace(min(all_attention), max(all_attention), 100)
+        y_pred = slope * x_range + intercept
+        
+        ax1.plot(x_range, y_pred, 'k--', alpha=0.8, linewidth=2, 
+                label=f'Regression (p={p_value:.3f})')
+    
+    ax1.set_xlabel('Average Attention Received', fontweight='bold', fontsize=12)
+    ax1.set_ylabel('Learning Rate', fontweight='bold', fontsize=12)
+    ax1.set_title(f'Attention Received vs Learning Rate\n({primary_network.capitalize()} Network - Size Comparison)', fontweight='bold', fontsize=14)
+    ax1.legend(fontsize=11)
+    ax1.grid(True, alpha=0.3)
+    
+    # Plot 2: Attention vs Learning Rate - Type Comparison
+    ax2 = axes[1]
+    
+    # Use a fixed agent count for type comparison
+    fixed_agent_count = args.agent_counts[-1]
+    type_data = [d for d in all_agent_data if d['num_agents'] == fixed_agent_count]
+    
+    slowest_data = [d for d in type_data if d['agent_category'] == 'slowest']
+    fastest_data = [d for d in type_data if d['agent_category'] == 'fastest']
+    other_data = [d for d in type_data if d['agent_category'] == 'other']
+    
+    if slowest_data:
+        slowest_attention = [d['attention_received'] for d in slowest_data]
+        slowest_lrs = [d['learning_rate'] for d in slowest_data]
+        ax2.scatter(slowest_attention, slowest_lrs, c='red', alpha=0.8, s=80, label='Slowest Agents', edgecolors='darkred', linewidth=1)
+    
+    if fastest_data:
+        fastest_attention = [d['attention_received'] for d in fastest_data]
+        fastest_lrs = [d['learning_rate'] for d in fastest_data]
+        ax2.scatter(fastest_attention, fastest_lrs, c='green', alpha=0.8, s=80, label='Fastest Agents', edgecolors='darkgreen', linewidth=1)
+    
+    if other_data:
+        other_attention = [d['attention_received'] for d in other_data]
+        other_lrs = [d['learning_rate'] for d in other_data]
+        ax2.scatter(other_attention, other_lrs, c='lightblue', alpha=0.6, s=50, label='Other Agents', edgecolors='blue', linewidth=0.5)
+    
+    # Add regression line and p-value for type comparison
+    if len(type_data) > 2:
+        all_attention = [d['attention_received'] for d in type_data]
+        all_lrs = [d['learning_rate'] for d in type_data]
+        
+        # Perform linear regression
+        slope, intercept, r_value, p_value, std_err = stats.linregress(all_attention, all_lrs)
+        
+        # Create regression line
+        x_range = np.linspace(min(all_attention), max(all_attention), 100)
+        y_pred = slope * x_range + intercept
+        
+        ax2.plot(x_range, y_pred, 'k--', alpha=0.8, linewidth=2, 
+                label=f'Regression (p={p_value:.3f})')
+    
+    ax2.set_xlabel('Average Attention Received', fontweight='bold', fontsize=12)
+    ax2.set_ylabel('Learning Rate', fontweight='bold', fontsize=12)
+    ax2.set_title(f'Attention Received vs Learning Rate\n({fixed_agent_count} Agents - Network Type Comparison)', fontweight='bold', fontsize=14)
+    ax2.legend(fontsize=11)
+    ax2.grid(True, alpha=0.3)
+    
+    plt.suptitle('Attention Received vs Learning Rate Analysis', 
+                 fontsize=16, fontweight='bold', y=0.98)
+    plt.tight_layout(rect=[0, 0, 1, 0.92])
+    
+    plot_path = RESULTS_DIR / "attention_vs_learning_performance.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Saved attention vs learning performance plot to {plot_path}")
+    plt.close()
+
+
 def main():
     """Main function for agent performance comparison."""
     parser = argparse.ArgumentParser(description="Compare Slowest vs Fastest Learning Agents with Confidence Intervals")
@@ -876,8 +1466,14 @@ def main():
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
     parser.add_argument('--device', type=str, default='cpu', choices=['cpu', 'mps', 'cuda'],
                        help='Device to use')
+    parser.add_argument('--use-gnn', action='store_true', default=True, help='Enable Graph Neural Network for agents')
+    parser.add_argument('--no-gnn', action='store_true', help='Disable Graph Neural Network for agents')
     
     args = parser.parse_args()
+    
+    # Handle GNN configuration
+    if args.no_gnn:
+        args.use_gnn = False
     
     print("=== POLARIS Brandl Social Learning Agent Performance Sweep ===")
     print("This script analyzes individual agent learning performance across different")
@@ -890,6 +1486,7 @@ def main():
     print(f"   • Horizon (steps): {args.horizon}")
     print(f"   • Signal accuracy: {args.signal_accuracy}")
     print(f"   • Device: {args.device}")
+    print(f"   • Using GNN: {args.use_gnn}")
     print()
     print("🔍 Analysis Focus:")
     print("   • Fastest vs slowest agent trajectories with 95% confidence intervals")
@@ -914,7 +1511,7 @@ def main():
             
             performance = run_agent_experiment(
                 num_agents, network_type, args.episodes, args.horizon,
-                args.signal_accuracy, args.seed, args.device
+                args.signal_accuracy, args.seed, args.device, args.use_gnn
             )
             
             results[network_type][num_agents] = performance
@@ -1054,8 +1651,17 @@ def main():
     # Plot 5: Signal Quality vs Learning Performance
     plot_signal_quality_vs_learning_performance(results, args)
     
+    # Plot 6: Neighbor Count vs Learning Performance
+    plot_neighbor_count_vs_learning_performance(results, args)
+    
     # Plot 7: Temporal Signal analysis
     plot_temporal_signal_analysis(results, args)
+    
+    # Plot 8: Attention analysis
+    plot_attention_analysis(results, args)
+    
+    # Plot 9: Attention vs Learning Performance
+    plot_attention_vs_learning_performance(results, args)
     
     # Save results (convert numpy arrays to lists for JSON serialization)
     import json
@@ -1101,7 +1707,10 @@ def main():
     print(f"   📊 slowest_agent_network_positions.png - Network position frequency analysis for slowest agents")
     print(f"   📊 average_private_signals.png - Average private signals received over time")
     print(f"   📊 signal_quality_vs_learning_performance.png - Signal quality vs learning rate analysis")
+    print(f"   📊 neighbor_count_vs_learning_performance.png - Neighbor count vs learning rate analysis (star & random networks, 4 & 8 agents)")
     print(f"   📊 temporal_signal_analysis.png - Temporal signal quality comparison between slowest and fastest agents")
+    print(f"   📊 attention_analysis.png - Attention analysis showing which agents receive the most attention")
+    print(f"   📊 attention_vs_learning_performance.png - Attention received vs learning rate analysis")
     print(f"   📄 agent_performance_results.json - Complete numerical results with learning rates and CIs")
     print()
     print("🔬 Key Insights Available:")

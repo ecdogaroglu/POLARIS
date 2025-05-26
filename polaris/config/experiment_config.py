@@ -82,6 +82,7 @@ class ExperimentConfig:
     eval_only: bool = False
     plot_internal_states: bool = False
     plot_allocations: bool = False
+    plot_incentives: bool = False
     latex_style: bool = False
     use_tex: bool = False
     visualize_si: bool = False

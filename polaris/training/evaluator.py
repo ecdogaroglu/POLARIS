@@ -153,6 +153,9 @@ class Evaluator:
         # Reset agent internal states
         reset_agent_internal_states(self.agents)
 
+        # Initialize attention weights storage
+        attention_weights_history = []
+
         # Main evaluation loop
         steps_iterator = tqdm(range(num_steps), desc="Evaluating")
         for step in steps_iterator:
@@ -180,6 +183,11 @@ class Evaluator:
                 observations, next_observations, actions, rewards, step
             )
 
+            # Capture attention weights from GNN agents
+            step_attention_weights = self._capture_attention_weights()
+            if step_attention_weights is not None:
+                attention_weights_history.append(step_attention_weights)
+
             # Update observations for next step
             observations = next_observations
 
@@ -193,6 +201,10 @@ class Evaluator:
 
             if done:
                 break
+
+        # Store attention weights in metrics
+        if attention_weights_history:
+            self.metrics["attention_weights"] = attention_weights_history
 
         # Calculate episode duration
         episode_time = time.time() - start_time
@@ -548,3 +560,25 @@ class Evaluator:
             results["average_accuracy"] = float(np.mean(correct_actions / num_steps))
 
         return results
+
+    def _capture_attention_weights(self):
+        """Capture attention weights from GNN-enabled agents."""
+        if not hasattr(self.args, 'use_gnn') or not self.args.use_gnn:
+            return None
+            
+        # Get attention weights from the first agent's GNN (assuming all agents have similar network structure)
+        for agent_id, agent in self.agents.items():
+            if hasattr(agent, 'inference_module') and hasattr(agent.inference_module, 'get_attention_weights'):
+                attention_weights = agent.inference_module.get_attention_weights()
+                if attention_weights is not None:
+                    # Convert to attention matrix format
+                    # Get the latest edge index from the GNN's temporal memory
+                    if (hasattr(agent.inference_module, 'temporal_memory') and 
+                        len(agent.inference_module.temporal_memory['edge_indices']) > 0):
+                        edge_index = agent.inference_module.temporal_memory['edge_indices'][-1]
+                        attention_matrix = agent.inference_module.get_attention_matrix(edge_index, attention_weights)
+                        return attention_matrix
+                    else:
+                        # Fallback: return raw attention weights
+                        return attention_weights
+        return None

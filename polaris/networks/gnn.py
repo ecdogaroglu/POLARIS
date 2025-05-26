@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 # Add new imports for graph operations
 import torch_geometric
@@ -527,7 +528,7 @@ class ContinuousPolicyNetwork(nn.Module):
         scaled_mean = self.min_action + (self.max_action - self.min_action) * mean
 
         # Scale log_std to a range
-        min_log_std = -3
+        min_log_std = -4
         max_log_std = 1
         scaled_log_std = min_log_std + (max_log_std - min_log_std) * log_std
 
@@ -716,6 +717,9 @@ class TemporalGNN(nn.Module):
             "edge_indices": [],
             "attention_mask": None,
         }
+
+        # Store latest attention weights for analysis
+        self.latest_attention_weights = None
 
         # Initialize parameters
         self._init_parameters()
@@ -907,20 +911,31 @@ class TemporalGNN(nn.Module):
                     self.temporal_memory["attention_mask"][i, j] = 0
 
     def _apply_gnn(self, node_features, edge_index):
-        """Apply GNN layers to node features."""
+        """Apply GNN layers to node features and capture attention weights."""
         x = node_features
+        attention_weights = None
 
         # Apply GNN layers based on signal type
         if self.is_using_continuous:
             # Use continuous GNN layers
-            for layer in self.continuous_gnn_layers:
-                x = layer(x, edge_index)
+            for i, layer in enumerate(self.continuous_gnn_layers):
+                if i == 0:  # Capture attention weights from the first layer
+                    x, (edge_index_out, attention_weights) = layer(x, edge_index, return_attention_weights=True)
+                else:
+                    x = layer(x, edge_index)
                 x = F.relu(x)
         else:
             # Use discrete GNN layers
-            for layer in self.discrete_gnn_layers:
-                x = layer(x, edge_index)
+            for i, layer in enumerate(self.discrete_gnn_layers):
+                if i == 0:  # Capture attention weights from the first layer
+                    x, (edge_index_out, attention_weights) = layer(x, edge_index, return_attention_weights=True)
+                else:
+                    x = layer(x, edge_index)
                 x = F.relu(x)
+
+        # Store attention weights for analysis
+        if attention_weights is not None:
+            self.latest_attention_weights = attention_weights.detach().cpu().numpy()
 
         return x
 
@@ -1156,3 +1171,76 @@ class TemporalGNN(nn.Module):
             "edge_indices": [],
             "attention_mask": None,
         }
+
+    def get_attention_weights(self):
+        """Get the latest attention weights as a numpy array."""
+        return self.latest_attention_weights
+
+    def get_attention_matrix(self, edge_index, attention_weights):
+        """Convert edge-based attention weights to a full adjacency matrix."""
+        if attention_weights is None or edge_index is None:
+            return None
+            
+        try:
+            # Create attention matrix
+            attention_matrix = np.zeros((self.num_agents, self.num_agents))
+            
+            # Convert edge_index and attention_weights to numpy if they're tensors
+            if hasattr(edge_index, 'cpu'):
+                edge_index = edge_index.cpu().numpy()
+            if hasattr(attention_weights, 'cpu'):
+                attention_weights = attention_weights.cpu().numpy()
+            
+            # Handle attention weights from multiple heads
+            if attention_weights.ndim > 1:
+                # For multiple heads, average across heads
+                # Expected shape: [num_edges, num_heads] or [num_edges * num_heads]
+                if attention_weights.shape[1] == self.num_attn_heads:
+                    # Shape is [num_edges, num_heads] - average across heads
+                    attention_weights = np.mean(attention_weights, axis=1)
+                elif attention_weights.shape[0] % self.num_attn_heads == 0:
+                    # Shape might be [num_edges * num_heads, 1] - reshape and average
+                    num_edges = attention_weights.shape[0] // self.num_attn_heads
+                    attention_weights = attention_weights.reshape(num_edges, self.num_attn_heads)
+                    attention_weights = np.mean(attention_weights, axis=1)
+                else:
+                    # Fallback: flatten and take first num_edges elements
+                    attention_weights = attention_weights.flatten()
+                    if len(attention_weights) > edge_index.shape[1]:
+                        attention_weights = attention_weights[:edge_index.shape[1]]
+                    
+            # Ensure edge_index has the right shape
+            if edge_index.ndim == 1:
+                return attention_matrix  # Can't process 1D edge index
+                
+            # Fill the attention matrix
+            for i, (src, tgt) in enumerate(edge_index.T):
+                if i < len(attention_weights):
+                    # Convert batch-level indices to agent-level indices
+                    src_agent = int(src) % self.num_agents
+                    tgt_agent = int(tgt) % self.num_agents
+                    
+                    # Only fill if indices are within bounds
+                    if (0 <= src_agent < self.num_agents and 
+                        0 <= tgt_agent < self.num_agents):
+                        attention_matrix[src_agent, tgt_agent] = attention_weights[i]
+            
+            # CRITICAL FIX: Properly normalize attention weights
+            # Each row should represent attention weights from a source node
+            # and should sum to 1 (proper attention mechanism)
+            for i in range(self.num_agents):
+                row_sum = np.sum(attention_matrix[i, :])
+                if row_sum > 1e-8:  # Avoid division by zero
+                    attention_matrix[i, :] = attention_matrix[i, :] / row_sum
+                else:
+                    # If no outgoing attention, set uniform attention to connected nodes
+                    num_connections = np.sum(attention_matrix[i, :] > 0)
+                    if num_connections > 0:
+                        attention_matrix[i, attention_matrix[i, :] > 0] = 1.0 / num_connections
+                    
+            return attention_matrix
+            
+        except Exception as e:
+            # If there's any error in processing attention weights, return None
+            print(f"Warning: Could not process attention weights: {e}")
+            return None

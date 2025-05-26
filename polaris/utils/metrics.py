@@ -48,7 +48,12 @@ def initialize_metrics(env, args, training):
     # Add strategic experimentation specific metrics if applicable
     if hasattr(env, "safe_payoff"):
         # Add allocation tracking for continuous actions
-        if hasattr(args, "continuous_actions") and args.continuous_actions:
+        # Check if environment uses continuous actions by looking at action_space_type
+        is_continuous = (
+            hasattr(env, "action_space_type") and env.action_space_type == "continuous"
+        ) or (hasattr(args, "continuous_actions") and args.continuous_actions)
+        
+        if is_continuous:
             metrics["allocations"] = {
                 agent_id: [] for agent_id in range(env.num_agents)
             }
@@ -63,6 +68,10 @@ def initialize_metrics(env, args, training):
                 agent_id: [] for agent_id in range(env.num_agents)
             }
             metrics["policy_stds"] = {
+                agent_id: [] for agent_id in range(env.num_agents)
+            }
+            # Add incentive tracking
+            metrics["agent_incentives"] = {
                 agent_id: [] for agent_id in range(env.num_agents)
             }
 
@@ -151,6 +160,41 @@ def update_metrics(
             if agent_id in metrics["policy_stds"]:
                 metrics["policy_stds"][agent_id].append(std)
 
+    # Update agent beliefs and incentives for strategic experimentation
+    if "agent_beliefs" in info and "env_params" in info:
+        print(f"DEBUG: Found agent_beliefs and env_params in info")
+        env_params = info["env_params"]
+        safe_payoff = env_params.get("safe_payoff")
+        drift_rates = env_params.get("drift_rates")
+        jump_rates = env_params.get("jump_rates")
+        jump_sizes = env_params.get("jump_sizes")
+        
+        print(f"DEBUG: agent_beliefs = {info['agent_beliefs']}")
+        print(f"DEBUG: env_params = {env_params}")
+        
+        for agent_id, agent_belief in info["agent_beliefs"].items():
+            # Store agent beliefs
+            if "agent_beliefs" in metrics and agent_id in metrics["agent_beliefs"]:
+                metrics["agent_beliefs"][agent_id].append(agent_belief)
+                print(f"DEBUG: Stored belief {agent_belief} for agent {agent_id}")
+            
+            # Calculate and store incentives
+            if "agent_incentives" in metrics and agent_id in metrics["agent_incentives"]:
+                incentive = calculate_incentive(
+                    agent_belief,
+                    safe_payoff,
+                    drift_rates,
+                    jump_rates,
+                    jump_sizes,
+                )
+                metrics["agent_incentives"][agent_id].append(incentive)
+                print(f"DEBUG: Calculated and stored incentive {incentive} for agent {agent_id}")
+    else:
+        if "agent_beliefs" not in info:
+            print("DEBUG: agent_beliefs not found in info")
+        if "env_params" not in info:
+            print("DEBUG: env_params not found in info")
+
     # Update KL divergence based on dynamic MPE allocation
     if "policy_means" in metrics and "policy_stds" in metrics:
         # Get policy parameters if available
@@ -198,7 +242,6 @@ def update_metrics(
 
                     metrics["mpe_allocations"][agent_id].append(mpe_allocation)
                     metrics["policy_kl_divergence"][agent_id].append(kl)
-                    metrics["agent_beliefs"][agent_id].append(agent_belief)
 
     # Update opponent beliefs if requested and available
     if opponent_beliefs is not None and "opponent_belief_distributions" in metrics:
@@ -253,6 +296,56 @@ def process_incorrect_probabilities(metrics, num_agents):
     return agent_incorrect_probs
 
 
+def calculate_incentive(
+    belief,
+    safe_payoff,
+    drift_rates,
+    jump_rates,
+    jump_sizes,
+):
+    """
+    Calculate the experimentation incentive I(b) based on current belief.
+
+    This follows the Keller and Rady (2020) model - calculates the value of information.
+
+    Args:
+        belief: Agent's belief probability of being in the good state (state 1)
+        safe_payoff: Deterministic payoff of the safe arm
+        drift_rates: List of drift rates for each state [bad_state, good_state]
+        jump_rates: List of jump rates for each state [bad_state, good_state]
+        jump_sizes: List of jump sizes for each state [bad_state, good_state]
+
+    Returns:
+        incentive: The experimentation incentive I(b) - value of information
+    """
+    if belief is None or np.isnan(belief):
+        return 0.0
+
+    # Calculate payoffs for each state
+    bad_state_risky_payoff = drift_rates[0] + jump_rates[0] * jump_sizes[0]
+    good_state_risky_payoff = drift_rates[1] + jump_rates[1] * jump_sizes[1]
+
+    # Expected risky payoff based on current belief
+    expected_risky_payoff = belief * good_state_risky_payoff + (1 - belief) * bad_state_risky_payoff
+
+    # Expected payoff with current belief (choose best between safe and risky)
+    expected_payoff_current_belief = max(safe_payoff, expected_risky_payoff)
+
+    # Expected payoff with full information (knowing the true state)
+    # With probability 'belief', state is good: choose max(safe, good_risky)
+    # With probability '1-belief', state is bad: choose max(safe, bad_risky)
+    expected_payoff_full_info = (
+        belief * max(safe_payoff, good_state_risky_payoff) + 
+        (1 - belief) * max(safe_payoff, bad_state_risky_payoff)
+    )
+
+    # Value of information (incentive to experiment)
+    # This should always be non-negative
+    incentive = expected_payoff_full_info - expected_payoff_current_belief
+
+    return max(0.0, incentive)  # Ensure non-negative
+
+
 def calculate_dynamic_mpe(
     true_state,
     belief,
@@ -282,28 +375,25 @@ def calculate_dynamic_mpe(
         mpe_allocation: The MPE allocation for the given belief
     """
 
+    # Calculate payoffs for each state
+    bad_state_risky_payoff = drift_rates[0] + jump_rates[0] * jump_sizes[0]
+    good_state_risky_payoff = drift_rates[1] + jump_rates[1] * jump_sizes[1]
+
     # Compute expected risky payoff based on current belief
-    expected_risky_payoff = belief * (
-        drift_rates[1] + jump_rates[1] * jump_sizes[1]
-    ) + (1 - belief) * (drift_rates[0] + jump_rates[0] * jump_sizes[0])
+    expected_risky_payoff = belief * good_state_risky_payoff + (1 - belief) * bad_state_risky_payoff
 
-    # Full information payoff (value when state is known to be good)
-    full_info_payoff = belief * max(
-        safe_payoff, drift_rates[1] + jump_rates[1] * jump_sizes[1]
-    ) + (1 - belief) * max(safe_payoff, drift_rates[0] + jump_rates[0] * jump_sizes[0])
+    # Expected payoff with current belief (choose best between safe and risky)
+    expected_payoff_current_belief = max(safe_payoff, expected_risky_payoff)
 
-    # Check for potential division by zero or very small denominator
-    denominator = safe_payoff - expected_risky_payoff
+    # Expected payoff with full information (knowing the true state)
+    expected_payoff_full_info = (
+        belief * max(safe_payoff, good_state_risky_payoff) + 
+        (1 - belief) * max(safe_payoff, bad_state_risky_payoff)
+    )
 
-    # Add epsilon to avoid division by very small numbers
-    epsilon = 1e-4
-    if denominator == 0:
-        print(
-            f"Warning: Division by zero in MPE calculation for true state {true_state}"
-        )
-
-    # Incentive defined in the Keller and Rady paper
-    incentive = (full_info_payoff - safe_payoff) / denominator
+    # Value of information (incentive to experiment)
+    incentive = expected_payoff_full_info - expected_payoff_current_belief
+    incentive = max(0.0, incentive)  # Ensure non-negative
 
     # Check for invalid incentive
     if np.isnan(incentive) or np.isinf(incentive):

@@ -6,6 +6,7 @@ A modular plotting framework for analyzing POLARIS experiments.
 
 from .plots.allocations import AllocationPlotter
 from .plots.beliefs import BeliefPlotter
+from .plots.incentives import IncentivePlotter
 from .plots.learning_curves import LearningCurvePlotter
 
 
@@ -36,6 +37,7 @@ class POLARISPlotter:
         self.learning_curves = LearningCurvePlotter(use_latex=use_latex)
         self.beliefs = BeliefPlotter(use_latex=use_latex)
         self.allocations = AllocationPlotter(use_latex=use_latex)
+        self.incentives = IncentivePlotter(use_latex=use_latex)
 
     def generate_all_plots(
         self, metrics, env, args, output_dir, training=True, episodic_metrics=None
@@ -77,6 +79,24 @@ class POLARISPlotter:
             and hasattr(env, "safe_payoff")
         ):
             self.allocations.plot(metrics, env, args, output_dir)
+
+        # Generate incentive plots for strategic experimentation
+        if (
+            hasattr(args, "plot_incentives")
+            and args.plot_incentives
+            and hasattr(env, "safe_payoff")
+        ):
+            print(f"DEBUG: Calling incentive plotter...")
+            print(f"DEBUG: args.plot_incentives = {args.plot_incentives}")
+            print(f"DEBUG: hasattr(env, 'safe_payoff') = {hasattr(env, 'safe_payoff')}")
+            print(f"DEBUG: 'agent_incentives' in metrics = {'agent_incentives' in metrics}")
+            self.incentives.plot(metrics, env, args, output_dir)
+        else:
+            print(f"DEBUG: Incentive plotting conditions not met:")
+            print(f"DEBUG: hasattr(args, 'plot_incentives') = {hasattr(args, 'plot_incentives')}")
+            if hasattr(args, "plot_incentives"):
+                print(f"DEBUG: args.plot_incentives = {args.plot_incentives}")
+            print(f"DEBUG: hasattr(env, 'safe_payoff') = {hasattr(env, 'safe_payoff')}")
 
         print("✅ Visualization plots generated successfully!")
 

@@ -290,6 +290,9 @@ class Trainer:
         # Extract environment parameters for MPE calculation
         env_params = self._extract_environment_params()
 
+        # Initialize attention weights storage
+        attention_weights_history = []
+
         # Main simulation loop
         steps_iterator = tqdm(range(self.args.horizon), desc="Training")
         for step in steps_iterator:
@@ -318,6 +321,11 @@ class Trainer:
                 observations, next_observations, actions, rewards, step
             )
 
+            # Capture attention weights from GNN agents
+            step_attention_weights = self._capture_attention_weights()
+            if step_attention_weights is not None:
+                attention_weights_history.append(step_attention_weights)
+
             # Update observations for next step
             observations = next_observations
 
@@ -342,11 +350,42 @@ class Trainer:
                 self._handle_si_state_changes()
                 break
 
+        # Store attention weights in metrics
+        if attention_weights_history:
+            self.metrics["attention_weights"] = attention_weights_history
+
         # Display completion time
         total_time = time.time() - start_time
         print(f"Training completed in {total_time:.2f} seconds")
 
         return observations, self.metrics
+
+    def _capture_attention_weights(self):
+        """Capture attention weights from GNN-enabled agents."""
+        if not hasattr(self.args, 'use_gnn') or not self.args.use_gnn:
+            return None
+            
+        # Get attention weights from the first agent's GNN (assuming all agents have similar network structure)
+        for agent_id, agent in self.agents.items():
+            try:
+                if hasattr(agent, 'inference_module') and hasattr(agent.inference_module, 'get_attention_weights'):
+                    attention_weights = agent.inference_module.get_attention_weights()
+                    if attention_weights is not None:
+                        # Convert to attention matrix format
+                        # Get the latest edge index from the GNN's temporal memory
+                        if (hasattr(agent.inference_module, 'temporal_memory') and 
+                            len(agent.inference_module.temporal_memory['edge_indices']) > 0):
+                            edge_index = agent.inference_module.temporal_memory['edge_indices'][-1]
+                            attention_matrix = agent.inference_module.get_attention_matrix(edge_index, attention_weights)
+                            if attention_matrix is not None:
+                                return attention_matrix
+                        # Fallback: return None if we can't process the attention weights properly
+                        return None
+            except Exception as e:
+                # If there's any error, continue to next agent or return None
+                print(f"Warning: Could not capture attention weights from agent {agent_id}: {e}")
+                continue
+        return None
 
     def _print_environment_info(self):
         """Print information about the current environment state."""

@@ -312,23 +312,25 @@ class StrategicExperimentationEnvironment(BaseEnvironment):
         # Implementation based on Keller and Rady 2020 with symmetric MPE
         mpe_allocations = []
         for belief in beliefs:
-            # Compute incentive to experiment I(b)
-            expected_risky_payoff = belief * (
-                self.drift_rates[1] + self.jump_rates[1] * self.jump_sizes[1]
-            ) + (1 - belief) * (
-                self.drift_rates[0] + self.jump_rates[0] * self.jump_sizes[0]
+            # Calculate payoffs for each state
+            bad_state_risky_payoff = self.drift_rates[0] + self.jump_rates[0] * self.jump_sizes[0]
+            good_state_risky_payoff = self.drift_rates[1] + self.jump_rates[1] * self.jump_sizes[1]
+
+            # Compute expected risky payoff based on current belief
+            expected_risky_payoff = belief * good_state_risky_payoff + (1 - belief) * bad_state_risky_payoff
+
+            # Expected payoff with current belief (choose best between safe and risky)
+            expected_payoff_current_belief = max(self.safe_payoff, expected_risky_payoff)
+
+            # Expected payoff with full information (knowing the true state)
+            expected_payoff_full_info = (
+                belief * max(self.safe_payoff, good_state_risky_payoff) + 
+                (1 - belief) * max(self.safe_payoff, bad_state_risky_payoff)
             )
 
-            # Full information payoff
-            full_info_payoff = max(
-                self.safe_payoff,
-                self.drift_rates[1] + self.jump_rates[1] * self.jump_sizes[1],
-            )
-
-            # Incentive defined in the paper
-            incentive = (full_info_payoff - self.safe_payoff) / (
-                self.safe_payoff - expected_risky_payoff
-            )
+            # Value of information (incentive to experiment)
+            incentive = expected_payoff_full_info - expected_payoff_current_belief
+            incentive = max(0.0, incentive)  # Ensure non-negative
 
             # Adjust for number of players and background signal
             k0 = self.background_informativeness

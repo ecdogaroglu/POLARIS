@@ -35,9 +35,10 @@ def main():
     parser.add_argument('--eval', action='store_true', help='Evaluation mode')
     parser.add_argument('--load', type=str, default=None, help='Path to load models')
     parser.add_argument('--use-gnn', action='store_true', default=True, help='Use GNN inference')
-    parser.add_argument('--use-si', action='store_true', help='Use Synaptic Intelligence')
+    parser.add_argument('--use-si', action='store_true', default=False, help='Use Synaptic Intelligence')
     parser.add_argument('--si-importance', type=float, default=100.0, help='SI importance weight')
     parser.add_argument('--plot-allocations', action='store_true', default=True, help='Plot allocations')
+    parser.add_argument('--plot-incentives', action='store_true', default=True, help='Plot agent incentives')
     parser.add_argument('--plot-states', action='store_true', default=True, help='Plot internal states')
     parser.add_argument('--latex-style', action='store_true', default=True, help='Use LaTeX styling')
     parser.add_argument('--device', type=str, default="cpu", choices=['cpu', 'mps', 'cuda'], 
@@ -166,6 +167,7 @@ def create_strategic_config(args) -> ExperimentConfig:
         eval_only=args.eval,
         plot_internal_states=args.plot_states,
         plot_allocations=args.plot_allocations,
+        plot_incentives=args.plot_incentives,
         latex_style=args.latex_style,
         use_tex=False  # Avoid LaTeX rendering issues, use LaTeX-like styling instead
     )
