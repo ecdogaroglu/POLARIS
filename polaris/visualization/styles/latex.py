@@ -18,7 +18,6 @@ def set_latex_style(use_tex=False):
         use_tex: Whether to use actual LaTeX rendering (requires LaTeX installation).
                  If False, uses LaTeX-like styling without requiring LaTeX.
     """
-    print(use_tex)
     # Check if we can use LaTeX
     if use_tex:
         try:

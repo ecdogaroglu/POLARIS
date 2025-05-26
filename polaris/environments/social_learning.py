@@ -207,6 +207,7 @@ class SocialLearningEnvironment(BaseEnvironment):
                 else self.incorrect_prob_history[-1]
             ),
             "correct_actions": self.correct_actions.copy(),
+            "signals": self.signals.copy(),  # Add signals to info for tracking
         }
 
         return observations, rewards, done, info

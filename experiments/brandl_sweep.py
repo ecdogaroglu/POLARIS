@@ -11,6 +11,8 @@ This script provides detailed insights into:
 - Performance disparities between slowest and fastest learners
 - Network topology effects on learning dynamics
 - Comparative analysis across different network sizes
+- Network position analysis for slowest agents
+- Signal analysis across episodes
 
 Key Features:
 - Calculates learning rates (r) for each agent using incorrect probability decay
@@ -19,6 +21,8 @@ Key Features:
 - Supports multiple episodes with proper agent resetting
 - Produces both aggregate plots and detailed JSON results
 - Supports multiple network types: complete, ring, star, random
+- Analyzes network positions of slowest agents
+- Tracks private signals received by agents over time
 
 Usage:
     python experiments/brandl_sweep.py
@@ -27,8 +31,9 @@ Usage:
 Outputs:
 - fastest_slowest_network_sizes_evolution.png: Fastest/slowest agent trajectories with CIs across network sizes
 - fastest_slowest_network_types_evolution.png: Fastest/slowest agent trajectories with CIs across network types
+- slowest_agent_network_positions.png: Network position frequency analysis for slowest agents
+- average_private_signals.png: Average private signals received over time
 - agent_performance_results.json: Complete numerical results with learning rates
-- Individual agent plots in subdirectories for each configuration
 
 Author: POLARIS Framework
 """
@@ -41,6 +46,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from scipy import stats
 from collections import Counter
+import networkx as nx
 
 from polaris.config.experiment_config import (
     ExperimentConfig, AgentConfig, TrainingConfig, BrandlConfig
@@ -115,6 +121,10 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
         config.disable_plotting = True
         
         # Create fresh environment for this episode
+        # Use a fixed seed for network generation (based on network_type and num_agents)
+        # but different seed for agent learning and signal generation
+        network_seed = hash((network_type, num_agents)) % (2**31)  # Fixed seed for network structure
+        
         network_params = None
         if network_type == 'random':
             network_params = {'density': env_config.network_density}
@@ -126,8 +136,11 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
             network_type=network_type,
             network_params=network_params,
             horizon=horizon,
-            seed=episode_seed
+            seed=network_seed  # Use fixed seed for consistent network structure
         )
+        
+        # After network creation, reseed the environment for episode-specific randomness
+        env.seed(episode_seed)
         
         # Run experiment with fresh agents (this will automatically create new agents)
         episodic_metrics, processed_metrics = run_experiment(env, config)
@@ -151,34 +164,36 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
                         # Calculate learning rate for this agent in this episode
                         episode_learning_rates[agent_id] = calculate_learning_rate(agent_trajectory)
                     
+                    # Extract signal data if available
+                    episode_signals = []
+                    if 'signals' in episode_data:
+                        signals_data = episode_data['signals']
+                        if len(signals_data) > 0:
+                            # signals_data should be a list of arrays, one per time step
+                            for step_signals in signals_data:
+                                if isinstance(step_signals, np.ndarray):
+                                    episode_signals.append(step_signals.copy())
+                                else:
+                                    episode_signals.append(np.array(step_signals))
+                    
                     all_episodes_data.append({
                         'trajectories': episode_trajectories,
                         'learning_rates': episode_learning_rates,
                         'final_probs': [traj[-1] for traj in episode_trajectories],
                         'episode_seed': episode_seed,
-                        'true_state': env.true_state
+                        'true_state': env.true_state,
+                        'network_matrix': env.network.copy(),
+                        'signals': episode_signals,
+                        'network_type': network_type,
+                        'num_agents': num_agents
                     })
-    
-    # Aggregate results across episodes
-    if not all_episodes_data:
-        return {
-            'slowest_trajectories': None,
-            'fastest_trajectories': None,
-            'slowest_mean': 1.0,
-            'fastest_mean': 1.0,
-            'slowest_ci': (1.0, 1.0),
-            'fastest_ci': (1.0, 1.0),
-            'slowest_agent_id': 0,
-            'fastest_agent_id': 0,
-            'learning_rates': {},
-            'num_episodes': episodes
-        }
     
     # Identify fastest and slowest agents for each episode separately
     fastest_trajectories = []
     slowest_trajectories = []
     fastest_learning_rates = []
     slowest_learning_rates = []
+    slowest_positions = []  # Track network positions of slowest agents
     
     for ep in all_episodes_data:
         # For this episode, find the fastest and slowest agents
@@ -193,6 +208,9 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
         slowest_trajectories.append(ep['trajectories'][episode_slowest_id])
         fastest_learning_rates.append(episode_learning_rates[episode_fastest_id])
         slowest_learning_rates.append(episode_learning_rates[episode_slowest_id])
+        
+        # Store network position of slowest agent
+        slowest_positions.append(episode_slowest_id)
     
     # Calculate overall statistics
     mean_fastest_lr = np.mean(fastest_learning_rates)
@@ -247,10 +265,601 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
         'fastest_agent_id': int(most_common_fastest),
         'learning_rates': {most_common_slowest: mean_slowest_lr, most_common_fastest: mean_fastest_lr},
         'num_episodes': episodes,
-        'all_episodes_data': all_episodes_data  # Keep for detailed analysis
+        'all_episodes_data': all_episodes_data,  # Keep for detailed analysis
+        'slowest_positions': slowest_positions,  # Network positions of slowest agents
+        'slowest_position_counts': dict(slowest_agent_counts)  # Frequency of each position being slowest
     }
     
     return agent_performance
+
+
+def plot_network_positions(results, args):
+    """Create network graph plots showing frequency of slowest agents at each position."""
+    print("Creating network position analysis plots...")
+    
+    # Create network graphs showing slowest agent frequencies
+    fig, axes = plt.subplots(2, 2, figsize=(20, 16))
+    axes = axes.flatten()
+    
+    plot_idx = 0
+    for network_type in args.network_types:
+        if plot_idx >= 4:
+            break
+            
+        ax = axes[plot_idx]
+        
+        # Find the largest network size for this network type to use as the representative
+        agent_counts = sorted([ac for ac in results[network_type].keys() if ac > 1])
+        if not agent_counts:
+            plot_idx += 1
+            continue
+            
+        # Use the largest network size for visualization
+        num_agents = agent_counts[-1]
+        performance = results[network_type][num_agents]
+        
+        if performance['slowest_mean'] is None or not performance['all_episodes_data']:
+            plot_idx += 1
+            continue
+        
+        # Get network matrix from the first episode
+        network_matrix = performance['all_episodes_data'][0]['network_matrix']
+        position_counts = performance['slowest_position_counts']
+        
+        # Create NetworkX graph
+        G = nx.from_numpy_array(network_matrix)
+        
+        # Calculate node positions based on network type with proper scaling
+        if network_type == 'complete':
+            pos = nx.circular_layout(G, scale=0.8)
+        elif network_type == 'ring':
+            pos = nx.circular_layout(G, scale=0.8)
+        elif network_type == 'star':
+            pos = nx.spring_layout(G, k=1.5, iterations=100, scale=0.8)
+        elif network_type == 'random':
+            pos = nx.spring_layout(G, k=1.0, iterations=100, scale=0.8)
+        else:
+            pos = nx.spring_layout(G, scale=0.8)
+        
+        # Calculate frequencies and normalize
+        total_episodes = sum(position_counts.values())
+        node_frequencies = {}
+        for node in range(num_agents):
+            freq = position_counts.get(node, 0)
+            node_frequencies[node] = freq / total_episodes * 100 if total_episodes > 0 else 0
+        
+        # Create node colors based on frequency (red = high frequency of being slowest)
+        node_colors = []
+        max_freq = max(node_frequencies.values()) if node_frequencies.values() else 1
+        for node in range(num_agents):
+            freq = node_frequencies[node]
+            # Color intensity based on frequency (white to red)
+            intensity = freq / max_freq if max_freq > 0 else 0
+            node_colors.append((1.0, 1.0 - intensity, 1.0 - intensity))  # RGB: white to red
+        
+        # Draw the network with larger nodes and black frames
+        nx.draw_networkx_edges(G, pos, ax=ax, alpha=0.7, width=3.5, edge_color='gray')
+        nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors, 
+                              node_size=2500, alpha=0.9, edgecolors='black', linewidths=2)
+        
+        # Add labels showing frequency percentages with better formatting
+        labels = {}
+        for node in range(num_agents):
+            freq = node_frequencies[node]
+            labels[node] = f'{freq:.0f}%'
+        
+        nx.draw_networkx_labels(G, pos, labels, ax=ax, font_size=18, font_weight='bold', 
+                               font_color='black')
+        
+        ax.set_title(f'{network_type.capitalize()} Network ({num_agents} agents)\nFrequency of Being Slowest Agent', 
+                    fontweight='bold', fontsize=16)
+        ax.set_xlim(-1.2, 1.2)
+        ax.set_ylim(-1.2, 1.2)
+        ax.axis('off')
+        
+        plot_idx += 1
+    
+    # Hide unused subplots
+    for i in range(plot_idx, 4):
+        axes[i].set_visible(False)
+    
+    # Add a centered color legend between the two rows of plots
+    from matplotlib.colors import LinearSegmentedColormap
+    
+    # Position the legend in the center of the figure, between the two rows
+    legend_x = 0.35  # Center horizontally
+    legend_y = 0.48  # Position between the two rows
+    legend_width = 0.3
+    legend_height = 0.04
+    
+    # Create gradient rectangle using figure coordinates
+    gradient = np.linspace(0, 1, 100).reshape(1, -1)
+    
+    # Add the legend to the figure (not to a specific axis)
+    fig_legend_ax = fig.add_axes([legend_x, legend_y, legend_width, legend_height])
+    fig_legend_ax.imshow(gradient, aspect='auto', cmap='Reds', alpha=0.8)
+    fig_legend_ax.set_xlim(0, 100)
+    fig_legend_ax.set_ylim(0, 1)
+    fig_legend_ax.set_xticks([0, 100])
+    fig_legend_ax.set_xticklabels(['0%', 'Max%'], fontsize=12, fontweight='bold')
+    fig_legend_ax.set_yticks([])
+    fig_legend_ax.set_xlabel('Slowest Agent Frequency', fontsize=13, fontweight='bold', labelpad=10)
+    
+    # Remove the box around the legend
+    for spine in fig_legend_ax.spines.values():
+        spine.set_visible(False)
+    
+    plt.suptitle('Network Position Analysis: Frequency of Being Slowest Agent', 
+                 fontsize=18, fontweight='bold', y=0.95)
+    plt.tight_layout(rect=[0, 0, 1, 0.92])
+    
+    plot_path = RESULTS_DIR / "slowest_agent_network_positions.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Saved network position analysis to {plot_path}")
+    plt.close()
+
+
+def plot_signal_analysis(results, args):
+    """Create plots showing private signals received by slowest agents over time."""
+    print("Creating signal analysis plots...")
+    
+    # Collect signal data across all configurations
+    signal_data = {}
+    
+    for network_type in args.network_types:
+        signal_data[network_type] = {}
+        
+        for num_agents in args.agent_counts:
+            performance = results[network_type][num_agents]
+            if performance['slowest_mean'] is None:
+                continue
+                
+            # Extract signal data from all episodes, focusing on slowest agents
+            all_episode_signals = []
+            
+            for ep_idx, ep_data in enumerate(performance['all_episodes_data']):
+                if 'signals' in ep_data and len(ep_data['signals']) > 0:
+                    # ep_data['signals'] is a list of arrays, one per time step
+                    episode_signals = ep_data['signals']
+                    true_state = ep_data['true_state']
+                    
+                    # Get the slowest agent ID for this episode
+                    slowest_agent_id = performance['slowest_positions'][ep_idx]
+                    
+                    # Calculate signal correctness for the slowest agent over time
+                    slowest_signal_correctness = []
+                    for step_signals in episode_signals:
+                        if len(step_signals) > slowest_agent_id:
+                            # Check if the slowest agent received the correct signal
+                            agent_signal = step_signals[slowest_agent_id]
+                            correctness = 1.0 if agent_signal == true_state else 0.0
+                            slowest_signal_correctness.append(correctness)
+                    
+                    if len(slowest_signal_correctness) > 0:
+                        all_episode_signals.append(slowest_signal_correctness)
+            
+            if len(all_episode_signals) > 0:
+                signal_data[network_type][num_agents] = all_episode_signals
+    
+    # Create plots
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    axes = axes.flatten()
+    
+    # Plot 1: Signal correctness across network sizes (using first network type)
+    if args.network_types:
+        primary_network = args.network_types[0]
+        ax = axes[0]
+        
+        for num_agents in sorted(signal_data.get(primary_network, {}).keys()):
+            episode_signals = signal_data[primary_network][num_agents]
+            
+            if len(episode_signals) > 0:
+                # Calculate mean and CI across episodes
+                max_len = max(len(ep) for ep in episode_signals)
+                padded_signals = []
+                
+                for ep_signals in episode_signals:
+                    # Pad shorter episodes with the last value
+                    if len(ep_signals) < max_len:
+                        padded = ep_signals + [ep_signals[-1]] * (max_len - len(ep_signals))
+                    else:
+                        padded = ep_signals[:max_len]
+                    padded_signals.append(padded)
+                
+                signals_array = np.array(padded_signals)
+                mean_signals = np.mean(signals_array, axis=0)
+                
+                if len(episode_signals) > 1:
+                    sem = stats.sem(signals_array, axis=0)
+                    ci = stats.t.interval(0.95, len(episode_signals)-1, loc=mean_signals, scale=sem)
+                    ci_lower, ci_upper = ci
+                else:
+                    ci_lower = ci_upper = mean_signals
+                
+                time_steps = range(len(mean_signals))
+                
+                if num_agents == 1:
+                    label = 'Autarky'
+                else:
+                    label = f'{num_agents} agents'
+                
+                ax.plot(time_steps, mean_signals, label=label, linewidth=2)
+                ax.fill_between(time_steps, ci_lower, ci_upper, alpha=0.2)
+        
+        ax.set_xlabel('Time Steps', fontweight='bold')
+        ax.set_ylabel('Fraction of Correct Signals (Slowest Agents)', fontweight='bold')
+        ax.set_title(f'{primary_network.capitalize()} Network\nSlowest Agents Signal Correctness Over Time', fontweight='bold')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        ax.axhline(y=SIGNAL_ACCURACY, color='red', linestyle='--', alpha=0.7, label=f'Expected ({SIGNAL_ACCURACY})')
+    
+    # Plot 2: Signal correctness across network types (using middle agent count)
+    if len(args.agent_counts) > 1:
+        middle_idx = len(args.agent_counts) // 2
+        fixed_agent_count = args.agent_counts[-1]
+        ax = axes[1]
+        
+        for network_type in args.network_types:
+            if fixed_agent_count in signal_data.get(network_type, {}):
+                episode_signals = signal_data[network_type][fixed_agent_count]
+                
+                if len(episode_signals) > 0:
+                    # Calculate mean and CI across episodes
+                    max_len = max(len(ep) for ep in episode_signals)
+                    padded_signals = []
+                    
+                    for ep_signals in episode_signals:
+                        if len(ep_signals) < max_len:
+                            padded = ep_signals + [ep_signals[-1]] * (max_len - len(ep_signals))
+                        else:
+                            padded = ep_signals[:max_len]
+                        padded_signals.append(padded)
+                    
+                    signals_array = np.array(padded_signals)
+                    mean_signals = np.mean(signals_array, axis=0)
+                    
+                    if len(episode_signals) > 1:
+                        sem = stats.sem(signals_array, axis=0)
+                        ci = stats.t.interval(0.95, len(episode_signals)-1, loc=mean_signals, scale=sem)
+                        ci_lower, ci_upper = ci
+                    else:
+                        ci_lower = ci_upper = mean_signals
+                    
+                    time_steps = range(len(mean_signals))
+                    
+                    ax.plot(time_steps, mean_signals, label=network_type.capitalize(), linewidth=2)
+                    ax.fill_between(time_steps, ci_lower, ci_upper, alpha=0.2)
+        
+        ax.set_xlabel('Time Steps', fontweight='bold')
+        ax.set_ylabel('Fraction of Correct Signals (Slowest Agents)', fontweight='bold')
+        ax.set_title(f'Slowest Agents Signal Correctness Across Network Types\n({fixed_agent_count} Agents)', fontweight='bold')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        ax.axhline(y=SIGNAL_ACCURACY, color='red', linestyle='--', alpha=0.7, label=f'Expected ({SIGNAL_ACCURACY})')
+    
+    # Hide unused subplots
+    for i in range(2, 4):
+        axes[i].set_visible(False)
+    
+    plt.suptitle('Slowest Agents Private Signal Analysis: Correctness Over Time', 
+                 fontsize=16, fontweight='bold')
+    plt.tight_layout()
+    
+    plot_path = RESULTS_DIR / "average_private_signals.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Saved signal analysis to {plot_path}")
+    plt.close()
+
+
+def plot_signal_quality_vs_learning_performance(results, args):
+    """Create dedicated plots showing signal quality vs learning performance with fastest/slowest distinction."""
+    print("Creating dedicated signal quality vs learning performance plots...")
+    
+    # Collect data for analysis
+    all_agent_data = []
+    
+    for network_type in args.network_types:
+        for num_agents in args.agent_counts:
+            if num_agents == 1:  # Skip autarky
+                continue
+                
+            performance = results[network_type][num_agents]
+            if performance['slowest_mean'] is None:
+                continue
+                
+            for ep_idx, ep_data in enumerate(performance['all_episodes_data']):
+                if 'signals' in ep_data and len(ep_data['signals']) > 0:
+                    episode_signals = ep_data['signals']
+                    true_state = ep_data['true_state']
+                    learning_rates = ep_data['learning_rates']
+                    
+                    # Get fastest and slowest agent IDs for this episode
+                    slowest_agent_id = performance['slowest_positions'][ep_idx]
+                    fastest_agent_id = max(learning_rates.keys(), key=lambda k: learning_rates[k])
+                    
+                    # Calculate signal correctness for each agent
+                    for agent_id in range(num_agents):
+                        agent_signal_correctness = []
+                        for step_signals in episode_signals:
+                            if len(step_signals) > agent_id:
+                                agent_signal = step_signals[agent_id]
+                                correctness = 1.0 if agent_signal == true_state else 0.0
+                                agent_signal_correctness.append(correctness)
+                        
+                        if len(agent_signal_correctness) > 0:
+                            avg_signal_correctness = np.mean(agent_signal_correctness)
+                            agent_lr = learning_rates.get(agent_id, 0.0)
+                            
+                            # Determine agent category
+                            if agent_id == slowest_agent_id:
+                                agent_category = 'slowest'
+                            elif agent_id == fastest_agent_id:
+                                agent_category = 'fastest'
+                            else:
+                                agent_category = 'other'
+                            
+                            all_agent_data.append({
+                                'network_type': network_type,
+                                'num_agents': num_agents,
+                                'agent_id': agent_id,
+                                'episode': ep_idx,
+                                'signal_correctness': avg_signal_correctness,
+                                'learning_rate': agent_lr,
+                                'agent_category': agent_category,
+                                'final_incorrect_prob': ep_data['trajectories'][agent_id][-1]
+                            })
+    
+    if not all_agent_data:
+        print("No signal data available for analysis")
+        return
+    
+    # Create two plots: Size comparison and Type comparison (only learning rate)
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # Plot 1: Signal Quality vs Learning Rate - Size Comparison
+    ax1 = axes[0]
+    
+    # Use the first network type for size comparison
+    primary_network = args.network_types[0]
+    size_data = [d for d in all_agent_data if d['network_type'] == primary_network]
+    
+    slowest_data = [d for d in size_data if d['agent_category'] == 'slowest']
+    fastest_data = [d for d in size_data if d['agent_category'] == 'fastest']
+    other_data = [d for d in size_data if d['agent_category'] == 'other']
+    
+    if slowest_data:
+        slowest_signals = [d['signal_correctness'] for d in slowest_data]
+        slowest_lrs = [d['learning_rate'] for d in slowest_data]
+        ax1.scatter(slowest_signals, slowest_lrs, c='red', alpha=0.8, s=80, label='Slowest Agents', edgecolors='darkred', linewidth=1)
+    
+    if fastest_data:
+        fastest_signals = [d['signal_correctness'] for d in fastest_data]
+        fastest_lrs = [d['learning_rate'] for d in fastest_data]
+        ax1.scatter(fastest_signals, fastest_lrs, c='green', alpha=0.8, s=80, label='Fastest Agents', edgecolors='darkgreen', linewidth=1)
+    
+    if other_data:
+        other_signals = [d['signal_correctness'] for d in other_data]
+        other_lrs = [d['learning_rate'] for d in other_data]
+        ax1.scatter(other_signals, other_lrs, c='lightblue', alpha=0.6, s=50, label='Other Agents', edgecolors='blue', linewidth=0.5)
+    
+    # Add regression line and p-value for size comparison
+    if len(size_data) > 2:
+        all_signals = [d['signal_correctness'] for d in size_data]
+        all_lrs = [d['learning_rate'] for d in size_data]
+        
+        # Perform linear regression
+        slope, intercept, r_value, p_value, std_err = stats.linregress(all_signals, all_lrs)
+        
+        # Create regression line
+        x_range = np.linspace(min(all_signals), max(all_signals), 100)
+        y_pred = slope * x_range + intercept
+        
+        ax1.plot(x_range, y_pred, 'k--', alpha=0.8, linewidth=2, 
+                label=f'Regression (p={p_value:.3f})')
+    
+    ax1.set_xlabel('Average Signal Correctness', fontweight='bold', fontsize=12)
+    ax1.set_ylabel('Learning Rate', fontweight='bold', fontsize=12)
+    ax1.set_title(f'Signal Quality vs Learning Rate\n({primary_network.capitalize()} Network - Size Comparison)', fontweight='bold', fontsize=14)
+    ax1.legend(fontsize=11)
+    ax1.grid(True, alpha=0.3)
+    ax1.axvline(x=SIGNAL_ACCURACY, color='black', linestyle='--', alpha=0.7, label=f'Expected Signal Accuracy ({SIGNAL_ACCURACY})')
+    
+    # Plot 2: Signal Quality vs Learning Rate - Type Comparison
+    ax2 = axes[1]
+    
+    # Use a fixed agent count for type comparison
+    middle_idx = len(args.agent_counts) // 2
+    fixed_agent_count = args.agent_counts[-1]
+    type_data = [d for d in all_agent_data if d['num_agents'] == fixed_agent_count]
+    
+    slowest_data = [d for d in type_data if d['agent_category'] == 'slowest']
+    fastest_data = [d for d in type_data if d['agent_category'] == 'fastest']
+    other_data = [d for d in type_data if d['agent_category'] == 'other']
+    
+    if slowest_data:
+        slowest_signals = [d['signal_correctness'] for d in slowest_data]
+        slowest_lrs = [d['learning_rate'] for d in slowest_data]
+        ax2.scatter(slowest_signals, slowest_lrs, c='red', alpha=0.8, s=80, label='Slowest Agents', edgecolors='darkred', linewidth=1)
+    
+    if fastest_data:
+        fastest_signals = [d['signal_correctness'] for d in fastest_data]
+        fastest_lrs = [d['learning_rate'] for d in fastest_data]
+        ax2.scatter(fastest_signals, fastest_lrs, c='green', alpha=0.8, s=80, label='Fastest Agents', edgecolors='darkgreen', linewidth=1)
+    
+    if other_data:
+        other_signals = [d['signal_correctness'] for d in other_data]
+        other_lrs = [d['learning_rate'] for d in other_data]
+        ax2.scatter(other_signals, other_lrs, c='lightblue', alpha=0.6, s=50, label='Other Agents', edgecolors='blue', linewidth=0.5)
+    
+    # Add regression line and p-value for type comparison
+    if len(type_data) > 2:
+        all_signals = [d['signal_correctness'] for d in type_data]
+        all_lrs = [d['learning_rate'] for d in type_data]
+        
+        # Perform linear regression
+        slope, intercept, r_value, p_value, std_err = stats.linregress(all_signals, all_lrs)
+        
+        # Create regression line
+        x_range = np.linspace(min(all_signals), max(all_signals), 100)
+        y_pred = slope * x_range + intercept
+        
+        ax2.plot(x_range, y_pred, 'k--', alpha=0.8, linewidth=2, 
+                label=f'Regression (R²={r_value**2:.3f}, p={p_value:.3f})')
+        
+    
+    ax2.set_xlabel('Average Signal Correctness', fontweight='bold', fontsize=12)
+    ax2.set_ylabel('Learning Rate', fontweight='bold', fontsize=12)
+    ax2.set_title(f'Signal Quality vs Learning Rate\n({fixed_agent_count} Agents - Network Type Comparison)', fontweight='bold', fontsize=14)
+    ax2.legend(fontsize=11)
+    ax2.grid(True, alpha=0.3)
+    ax2.axvline(x=SIGNAL_ACCURACY, color='black', linestyle='--', alpha=0.7, label=f'Expected Signal Accuracy ({SIGNAL_ACCURACY})')
+    
+    plt.suptitle('Signal Quality vs Learning Rate Analysis', 
+                 fontsize=16, fontweight='bold', y=0.98)
+    plt.tight_layout(rect=[0, 0, 1, 0.92])
+    
+    plot_path = RESULTS_DIR / "signal_quality_vs_learning_performance.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Saved dedicated signal quality vs learning performance plot to {plot_path}")
+    plt.close()
+
+
+def plot_temporal_signal_analysis(results, args):
+    """Create plots showing how signal quality changes over time comparing slowest vs fastest agents."""
+    print("Creating temporal signal analysis plots...")
+    
+    # Collect temporal signal data
+    temporal_data = {}
+    
+    for network_type in args.network_types:
+        temporal_data[network_type] = {}
+        
+        for num_agents in args.agent_counts:
+            if num_agents == 1:  # Skip autarky
+                continue
+                
+            performance = results[network_type][num_agents]
+            if performance['slowest_mean'] is None:
+                continue
+                
+            slowest_temporal = []
+            fastest_temporal = []
+            
+            for ep_idx, ep_data in enumerate(performance['all_episodes_data']):
+                if 'signals' in ep_data and len(ep_data['signals']) > 0:
+                    episode_signals = ep_data['signals']
+                    true_state = ep_data['true_state']
+                    learning_rates = ep_data['learning_rates']
+                    
+                    # Get fastest and slowest agent IDs for this episode
+                    slowest_agent_id = performance['slowest_positions'][ep_idx]
+                    fastest_agent_id = max(learning_rates.keys(), key=lambda k: learning_rates[k])
+                    
+                    # Calculate temporal signal correctness for slowest and fastest agents
+                    for agent_id in [slowest_agent_id, fastest_agent_id]:
+                        agent_temporal_signals = []
+                        for step_signals in episode_signals:
+                            if len(step_signals) > agent_id:
+                                agent_signal = step_signals[agent_id]
+                                correctness = 1.0 if agent_signal == true_state else 0.0
+                                agent_temporal_signals.append(correctness)
+                        
+                        if len(agent_temporal_signals) > 0:
+                            if agent_id == slowest_agent_id:
+                                slowest_temporal.append(agent_temporal_signals)
+                            elif agent_id == fastest_agent_id:
+                                fastest_temporal.append(agent_temporal_signals)
+            
+            temporal_data[network_type][num_agents] = {
+                'slowest': slowest_temporal,
+                'fastest': fastest_temporal
+            }
+    
+    # Create temporal analysis plots
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    axes = axes.flatten()
+    
+    plot_idx = 0
+    for network_type in args.network_types:
+        if plot_idx >= 4:
+            break
+            
+        ax = axes[plot_idx]
+        
+        # Combine data across all agent counts for this network type
+        all_slowest = []
+        all_fastest = []
+        
+        for num_agents in args.agent_counts:
+            if num_agents in temporal_data[network_type]:
+                all_slowest.extend(temporal_data[network_type][num_agents]['slowest'])
+                all_fastest.extend(temporal_data[network_type][num_agents]['fastest'])
+        
+        if all_slowest and all_fastest:
+            # Calculate mean temporal patterns
+            max_len = max(max(len(s) for s in all_slowest), max(len(f) for f in all_fastest))
+            
+            # Pad and average slowest agents
+            padded_slowest = []
+            for signals in all_slowest:
+                if len(signals) < max_len:
+                    padded = signals + [signals[-1]] * (max_len - len(signals))
+                else:
+                    padded = signals[:max_len]
+                padded_slowest.append(padded)
+            
+            # Pad and average fastest agents
+            padded_fastest = []
+            for signals in all_fastest:
+                if len(signals) < max_len:
+                    padded = signals + [signals[-1]] * (max_len - len(signals))
+                else:
+                    padded = signals[:max_len]
+                padded_fastest.append(padded)
+            
+            slowest_array = np.array(padded_slowest)
+            fastest_array = np.array(padded_fastest)
+            
+            slowest_mean = np.mean(slowest_array, axis=0)
+            fastest_mean = np.mean(fastest_array, axis=0)
+            
+            time_steps = range(len(slowest_mean))
+            
+            # Plot with confidence intervals
+            ax.plot(time_steps, slowest_mean, label='Slowest Agents', color='red', linewidth=3.0)
+            ax.plot(time_steps, fastest_mean, label='Fastest Agents', color='green', linewidth=3.0)
+            
+            if len(padded_slowest) > 1:
+                slowest_sem = stats.sem(slowest_array, axis=0)
+                slowest_ci = stats.t.interval(0.95, len(padded_slowest)-1, loc=slowest_mean, scale=slowest_sem)
+                ax.fill_between(time_steps, slowest_ci[0], slowest_ci[1], color='red', alpha=0.2)
+            
+            if len(padded_fastest) > 1:
+                fastest_sem = stats.sem(fastest_array, axis=0)
+                fastest_ci = stats.t.interval(0.95, len(padded_fastest)-1, loc=fastest_mean, scale=fastest_sem)
+                ax.fill_between(time_steps, fastest_ci[0], fastest_ci[1], color='green', alpha=0.2)
+        
+        ax.set_xlabel('Time Steps', fontweight='bold', fontsize=12)
+        ax.set_ylabel('Signal Correctness', fontweight='bold', fontsize=12)
+        ax.set_title(f'{network_type.capitalize()} Network\nTemporal Signal Quality', fontweight='bold', fontsize=14)
+        ax.legend(fontsize=11)
+        ax.grid(True, alpha=0.3)
+        ax.axhline(y=SIGNAL_ACCURACY, color='black', linestyle='--', alpha=0.7, label=f'Expected ({SIGNAL_ACCURACY})')
+        
+        plot_idx += 1
+    
+    # Hide unused subplots
+    for i in range(plot_idx, 4):
+        axes[i].set_visible(False)
+    
+    plt.suptitle('Temporal Signal Quality: Slowest vs Fastest Agents', 
+                 fontsize=16, fontweight='bold')
+    plt.tight_layout()
+    
+    plot_path = RESULTS_DIR / "temporal_signal_analysis.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Saved temporal signal analysis to {plot_path}")
+    plt.close()
 
 
 def main():
@@ -286,7 +895,8 @@ def main():
     print("   • Fastest vs slowest agent trajectories with 95% confidence intervals")
     print("   • Learning rate calculations (r) averaged across episodes")
     print("   • Network topology impact on learning disparities")
-    print("   • Statistical significance of performance differences")
+    print("   • Network position analysis for slowest agents")
+    print("   • Private signal analysis over time")
     print()
     
     # Set matplotlib style
@@ -320,7 +930,8 @@ def main():
     print("Creating comprehensive plots showing:")
     print("• Fastest vs slowest agent trajectories with 95% confidence intervals")
     print("• Learning rates (r) averaged across episodes")
-    print("• Statistical significance of performance differences")
+    print("• Network position analysis for slowest agents")
+    print("• Private signal analysis over time")
     print()
     
     # Plot 1: Fastest vs Slowest trajectories across Network Sizes (using first network type)
@@ -344,18 +955,18 @@ def main():
             slowest_lr = performance['learning_rates'].get(performance['slowest_agent_id'], 0.0)
             fastest_lr = performance['learning_rates'].get(performance['fastest_agent_id'], 0.0)
             
-            # Plot slowest agent with confidence interval
+            # Plot slowest agent with confidence interval (removed agent ID from label)
             plt.plot(time_steps, performance['slowest_mean'], 
-                    label=f'Agent {performance["slowest_agent_id"]} (r={slowest_lr:.4f}, Slowest)', 
+                    label=f'Slowest (r={slowest_lr:.4f})', 
                     color='red', linewidth=2.5, alpha=0.9)
             plt.fill_between(time_steps, 
                            performance['slowest_ci'][0], 
                            performance['slowest_ci'][1],
                            color='red', alpha=0.2)
             
-            # Plot fastest agent with confidence interval
+            # Plot fastest agent with confidence interval (removed agent ID from label)
             plt.plot(time_steps, performance['fastest_mean'], 
-                    label=f'Agent {performance["fastest_agent_id"]} (r={fastest_lr:.4f}, Fastest)', 
+                    label=f'Fastest (r={fastest_lr:.4f})', 
                     color='green', linewidth=2.5, alpha=0.9)
             plt.fill_between(time_steps, 
                            performance['fastest_ci'][0], 
@@ -382,7 +993,7 @@ def main():
     
     # Plot 2: Fastest vs Slowest trajectories across Network Types (using middle agent count)
     middle_idx = len(args.agent_counts) // 2
-    fixed_agent_count = args.agent_counts[middle_idx]
+    fixed_agent_count = args.agent_counts[-1]
     
     plt.figure(figsize=(15, 10))
     
@@ -401,18 +1012,18 @@ def main():
             slowest_lr = performance['learning_rates'].get(performance['slowest_agent_id'], 0.0)
             fastest_lr = performance['learning_rates'].get(performance['fastest_agent_id'], 0.0)
             
-            # Plot slowest agent with confidence interval
+            # Plot slowest agent with confidence interval (removed agent ID from label)
             plt.plot(time_steps, performance['slowest_mean'], 
-                    label=f'Agent {performance["slowest_agent_id"]} (r={slowest_lr:.4f}, Slowest)', 
+                    label=f'Slowest (r={slowest_lr:.4f})', 
                     color='red', linewidth=2.5, alpha=0.9)
             plt.fill_between(time_steps, 
                            performance['slowest_ci'][0], 
                            performance['slowest_ci'][1],
                            color='red', alpha=0.2)
             
-            # Plot fastest agent with confidence interval
+            # Plot fastest agent with confidence interval (removed agent ID from label)
             plt.plot(time_steps, performance['fastest_mean'], 
-                    label=f'Agent {performance["fastest_agent_id"]} (r={fastest_lr:.4f}, Fastest)', 
+                    label=f'Fastest (r={fastest_lr:.4f})', 
                     color='green', linewidth=2.5, alpha=0.9)
             plt.fill_between(time_steps, 
                            performance['fastest_ci'][0], 
@@ -420,7 +1031,7 @@ def main():
                            color='green', alpha=0.2)
             
             plt.xlabel("Time Steps", fontsize=12, fontweight='bold')
-            plt.ylabel("Incorrect ActionProbability", fontsize=12, fontweight='bold')
+            plt.ylabel("Incorrect Action Probability", fontsize=12, fontweight='bold')
             plt.title(f"{network_type.capitalize()} Network (Average over {performance['num_episodes']} episodes)", fontsize=14, fontweight='bold')
             plt.legend(fontsize=12, loc='upper right')
             plt.grid(True, alpha=0.3)
@@ -433,6 +1044,18 @@ def main():
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     print(f"Saved network types evolution plot to {plot_path}")
     plt.close()
+    
+    # Plot 3: Network position analysis
+    plot_network_positions(results, args)
+    
+    # Plot 4: Signal analysis
+    plot_signal_analysis(results, args)
+    
+    # Plot 5: Signal Quality vs Learning Performance
+    plot_signal_quality_vs_learning_performance(results, args)
+    
+    # Plot 7: Temporal Signal analysis
+    plot_temporal_signal_analysis(results, args)
     
     # Save results (convert numpy arrays to lists for JSON serialization)
     import json
@@ -475,12 +1098,18 @@ def main():
     print("\n🎯 Generated Outputs:")
     print(f"   📊 fastest_slowest_network_sizes_evolution.png - Fastest/slowest trajectories with CIs across network sizes")
     print(f"   📊 fastest_slowest_network_types_evolution.png - Fastest/slowest trajectories with CIs across network types")
+    print(f"   📊 slowest_agent_network_positions.png - Network position frequency analysis for slowest agents")
+    print(f"   📊 average_private_signals.png - Average private signals received over time")
+    print(f"   📊 signal_quality_vs_learning_performance.png - Signal quality vs learning rate analysis")
+    print(f"   📊 temporal_signal_analysis.png - Temporal signal quality comparison between slowest and fastest agents")
     print(f"   📄 agent_performance_results.json - Complete numerical results with learning rates and CIs")
     print()
     print("🔬 Key Insights Available:")
     print("   • Statistical significance of learning rate differences")
     print("   • Confidence intervals showing variability across episodes")
     print("   • Network topology effects on fastest vs slowest learners")
+    print("   • Network position analysis showing which positions tend to be slowest")
+    print("   • Signal quality analysis over time and across configurations")
     print("   • Robust performance comparisons with proper error estimation")
     print()
     print("=== ✅ Brandl agent performance analysis completed successfully! ===")

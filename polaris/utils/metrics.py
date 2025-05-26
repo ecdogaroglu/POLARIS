@@ -21,6 +21,7 @@ def initialize_metrics(env, args, training):
         "true_states": [],
         "agent_actions": {agent_id: [] for agent_id in range(env.num_agents)},
         "allocations": {agent_id: [] for agent_id in range(env.num_agents)},
+        "signals": [],  # Track signals over time
     }
 
     # Add training-specific or evaluation-specific metrics
@@ -88,6 +89,10 @@ def update_metrics(
     # Update true state history
     if "true_state" in info:
         metrics["true_states"].append(info["true_state"])
+
+    # Update signals history
+    if "signals" in info:
+        metrics["signals"].append(info["signals"])
 
     # Update mistake rates and incorrect probabilities
     if "mistake_rate" in info:
