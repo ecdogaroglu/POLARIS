@@ -111,16 +111,41 @@ class InvertibleBeliefHead(nn.Module):
     
     def inverse(self, belief_distribution: torch.Tensor) -> torch.Tensor:
         """Inverse transformation from belief distribution to hidden representation."""
-        # Convert belief distribution back to logits (approximate)
+        # Ensure belief distribution is properly normalized
         eps = 1e-8
         belief_clamped = torch.clamp(belief_distribution, eps, 1 - eps)
+        
+        # Convert belief distribution back to logits
+        # Since forward does: logits = self.belief_projection(z), then softmax(logits)
+        # We need to invert this process
+        
+        # Step 1: Convert from probability to logits (inverse of softmax)
+        # Use the log-sum-exp trick for numerical stability
         belief_logits = torch.log(belief_clamped)
         
-        # Inverse projection (using pseudo-inverse for non-square matrices)
-        z = torch.linalg.pinv(self.belief_projection.weight) @ belief_logits.T
-        z = z.T
+        # Step 2: Invert the linear projection
+        # Since logits = W @ z + b, we need to solve for z
+        # For an over-determined system (hidden_dim > num_belief_states), we use least squares
         
-        # Apply inverse coupling layers
+        # Remove bias first: logits_no_bias = logits - bias
+        logits_no_bias = belief_logits - self.belief_projection.bias.unsqueeze(0)
+        
+        # Solve: W @ z = logits_no_bias for z
+        # z = W^T @ (W @ W^T)^(-1) @ logits_no_bias (Moore-Penrose pseudoinverse)
+        W = self.belief_projection.weight  # [num_belief_states, hidden_dim]
+        
+        # Use torch.linalg.lstsq for numerical stability
+        # We want to solve W @ z.T = logits_no_bias.T for z.T
+        # So z.T = lstsq(W.T, logits_no_bias.T)
+        try:
+            z_T = torch.linalg.lstsq(W.T, logits_no_bias.T).solution
+            z = z_T.T
+        except:
+            # Fallback to pseudoinverse if lstsq fails
+            z = torch.linalg.pinv(W) @ logits_no_bias.T
+            z = z.T
+        
+        # Step 3: Apply inverse coupling layers
         for layer in reversed(self.coupling_layers):
             z, _ = layer(z, reverse=True)
         

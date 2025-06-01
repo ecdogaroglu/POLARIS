@@ -28,8 +28,8 @@ def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run Brandl Social Learning Experiment")
     parser.add_argument('--agents', type=int, default=2, help='Number of agents')
-    parser.add_argument('--episodes', type=int, default=1, help='Number of episodes')
-    parser.add_argument('--horizon', type=int, default=1000, help='Steps per episode')
+    parser.add_argument('--episodes', type=int, default=5, help='Number of episodes')
+    parser.add_argument('--horizon', type=int, default=100, help='Steps per episode')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--signal-accuracy', type=float, default=0.75, help='Signal accuracy')
     parser.add_argument('--network-type', type=str, default='complete', 
