@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .transformer import InvertibleBeliefHead
+
 
 def build_mlp(
     input_dim: int,
@@ -14,18 +16,15 @@ def build_mlp(
 ) -> nn.Sequential:
     """Build a multi-layer perceptron."""
     layers = []
-    prev_dim = input_dim
-
-    for hidden_dim in hidden_dims:
-        layers.append(nn.Linear(prev_dim, hidden_dim))
-        layers.append(activation())
-        prev_dim = hidden_dim
-
-    layers.append(nn.Linear(prev_dim, output_dim))
-
-    if output_activation is not None:
-        layers.append(output_activation())
-
+    dims = [input_dim] + hidden_dims + [output_dim]
+    
+    for i in range(len(dims) - 1):
+        layers.append(nn.Linear(dims[i], dims[i + 1]))
+        if i < len(dims) - 2:  # Not the last layer
+            layers.append(activation())
+        elif output_activation is not None:
+            layers.append(output_activation())
+    
     return nn.Sequential(*layers)
 
 
@@ -40,6 +39,7 @@ class EncoderNetwork(nn.Module):
         num_agents: int,
         device: torch.device,
         num_belief_states: int,
+        flow_layers: int = 4,
     ):
         super().__init__()
         self.device = device
@@ -63,7 +63,13 @@ class EncoderNetwork(nn.Module):
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc_mean = nn.Linear(hidden_dim, latent_dim)
         self.fc_logvar = nn.Linear(hidden_dim, latent_dim)
-        self.opponent_belief_head = nn.Linear(hidden_dim, num_belief_states)
+        
+        # Invertible opponent belief head
+        self.opponent_belief_head = InvertibleBeliefHead(
+            hidden_dim=hidden_dim,
+            num_belief_states=num_belief_states,
+            num_layers=flow_layers
+        )
 
         self._init_parameters()
 
@@ -74,7 +80,6 @@ class EncoderNetwork(nn.Module):
             self.fc2,
             self.fc_mean,
             self.fc_logvar,
-            self.opponent_belief_head,
         ]:
             if hasattr(module, "weight"):
                 nn.init.xavier_normal_(module.weight)
@@ -128,11 +133,23 @@ class EncoderNetwork(nn.Module):
         mean = self.fc_mean(x)
         logvar = self.fc_logvar(x)
 
-        # Opponent belief
-        logits = self.opponent_belief_head(x)
-        opponent_belief = F.softmax(logits, dim=-1)
+        # Opponent belief using invertible head
+        if is_continuous:
+            # For continuous signals, take only the first component
+            opponent_belief = self.opponent_belief_head(x)
+            opponent_belief = opponent_belief[:, :1]
+        else:
+            opponent_belief = self.opponent_belief_head(x)
 
         return mean, logvar, opponent_belief
+
+    def get_opponent_belief_log_prob(self, hidden_features: torch.Tensor) -> torch.Tensor:
+        """Get log probability of opponent belief transformation."""
+        return self.opponent_belief_head.log_prob(hidden_features)
+    
+    def inverse_opponent_belief_transform(self, belief_distribution: torch.Tensor) -> torch.Tensor:
+        """Inverse transform from opponent belief distribution to hidden features."""
+        return self.opponent_belief_head.inverse(belief_distribution)
 
 
 class DecoderNetwork(nn.Module):

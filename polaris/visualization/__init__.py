@@ -86,17 +86,8 @@ class POLARISPlotter:
             and args.plot_incentives
             and hasattr(env, "safe_payoff")
         ):
-            print(f"DEBUG: Calling incentive plotter...")
-            print(f"DEBUG: args.plot_incentives = {args.plot_incentives}")
-            print(f"DEBUG: hasattr(env, 'safe_payoff') = {hasattr(env, 'safe_payoff')}")
-            print(f"DEBUG: 'agent_incentives' in metrics = {'agent_incentives' in metrics}")
             self.incentives.plot(metrics, env, args, output_dir)
-        else:
-            print(f"DEBUG: Incentive plotting conditions not met:")
-            print(f"DEBUG: hasattr(args, 'plot_incentives') = {hasattr(args, 'plot_incentives')}")
-            if hasattr(args, "plot_incentives"):
-                print(f"DEBUG: args.plot_incentives = {args.plot_incentives}")
-            print(f"DEBUG: hasattr(env, 'safe_payoff') = {hasattr(env, 'safe_payoff')}")
+
 
         print("✅ Visualization plots generated successfully!")
 

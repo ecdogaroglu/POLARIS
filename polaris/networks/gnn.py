@@ -2,185 +2,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import math
+import warnings
 
 # Add new imports for graph operations
 import torch_geometric
 from torch_geometric.nn import GATConv, GCNConv
 
 from ..utils.device import get_best_device
-
-
-class TransformerBeliefProcessor(nn.Module):
-    """Transformer-based belief state processor for POLARIS."""
-
-    def __init__(
-        self,
-        hidden_dim,
-        action_dim,
-        device=None,
-        num_belief_states=None,
-        nhead=4,
-        num_layers=2,
-        dropout=0.1,
-    ):
-        super(TransformerBeliefProcessor, self).__init__()
-        self.device = device
-        self.hidden_dim = hidden_dim
-        self.action_dim = action_dim
-        self.num_belief_states = num_belief_states
-        self.nhead = nhead
-        self.num_layers = num_layers
-
-        # For continuous signals, the signal will be a single value
-        # For discrete signals, the signal will be one-hot encoded with num_belief_states
-        # We'll handle both cases by detecting the input dimension
-        self.supports_continuous_signal = True
-
-        # Signal-only input dimensions (no neighbor actions)
-        self.continuous_signal_dim = 1  # Just the continuous signal
-        self.discrete_signal_dim = num_belief_states  # Just the discrete signal
-
-        # Input projections to match hidden dimension (for signal-only processing)
-        self.signal_only_projection = nn.Linear(self.discrete_signal_dim, hidden_dim)
-        self.continuous_signal_projection = nn.Linear(
-            self.continuous_signal_dim, hidden_dim
-        )
-
-        # Positional encoding for transformer
-        self.pos_encoder = nn.Parameter(torch.zeros(1, 1, hidden_dim))
-
-        # Transformer encoder layer
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim,
-            nhead=nhead,
-            dim_feedforward=hidden_dim * 4,
-            dropout=dropout,
-            batch_first=True,
-        )
-
-        # Transformer encoder
-        self.transformer_encoder = nn.TransformerEncoder(
-            encoder_layer=encoder_layer, num_layers=num_layers
-        )
-
-        # Add softmax head for belief distribution
-        self.belief_head = nn.Linear(hidden_dim, num_belief_states)
-
-        # Initialize parameters
-        nn.init.xavier_normal_(self.signal_only_projection.weight)
-        nn.init.constant_(self.signal_only_projection.bias, 0)
-        nn.init.xavier_normal_(self.continuous_signal_projection.weight)
-        nn.init.constant_(self.continuous_signal_projection.bias, 0)
-        nn.init.xavier_normal_(self.belief_head.weight)
-        nn.init.constant_(self.belief_head.bias, 0)
-        nn.init.normal_(self.pos_encoder, mean=0.0, std=0.02)
-
-    def standardize_belief_state(self, belief):
-        """Ensure belief state has consistent shape [1, batch_size, hidden_dim]."""
-        if belief is None:
-            return None
-
-        # Add batch dimension if missing
-        if belief.dim() == 1:  # [hidden_dim]
-            belief = belief.unsqueeze(0)  # [1, hidden_dim]
-
-        # Add sequence dimension if missing
-        if belief.dim() == 2:  # [batch_size, hidden_dim]
-            belief = belief.unsqueeze(0)  # [1, batch_size, hidden_dim]
-
-        # Transpose if dimensions are in wrong order
-        if belief.dim() == 3 and belief.size(0) != 1:
-            belief = belief.transpose(0, 1).contiguous()
-
-        return belief
-
-    def forward(self, signal, neighbor_actions=None, current_belief=None):
-        """Update belief state based on new observation. Only uses signals, ignores neighbor_actions."""
-        # Handle both batched and single inputs
-
-        # Ensure we have batch dimension for signal
-        if signal.dim() == 1:
-            signal = signal.unsqueeze(0)
-
-        batch_size = signal.size(0)
-
-        # Detect if signal is continuous (1-dimensional) or discrete (one-hot encoded)
-        is_continuous_signal = signal.size(1) == 1
-
-        # Process signal based on type (continuous or discrete)
-        if is_continuous_signal:
-            # Signal is continuous (1-dimensional)
-            # Use only the signal without neighbor actions
-            combined = signal
-
-            # Add sequence dimension
-            combined = combined.unsqueeze(1).to(self.device)  # [batch_size, 1, 1]
-
-            # Project input using the projection for continuous signals
-            # We'll need a separate projection for just the continuous signal
-            projected = self.continuous_signal_projection(combined)
-        else:
-            # Signal is discrete (one-hot encoded)
-            # Ensure signal has correct dimensions
-            if signal.size(1) != self.num_belief_states:
-                signal = signal[:, : self.num_belief_states]
-
-            # Use only the signal without neighbor actions
-            combined = signal
-
-            # Add sequence dimension (Transformer expects [batch, seq_len, features])
-            combined = combined.unsqueeze(1).to(
-                self.device
-            )  # [batch_size, 1, num_belief_states]
-
-            # Project input using the projection for discrete signals
-            projected = self.signal_only_projection(combined)
-
-        # Initialize or standardize current_belief
-        if current_belief is None:
-            current_belief = torch.zeros(
-                1, batch_size, self.hidden_dim, device=self.device
-            )
-        else:
-            current_belief = self.standardize_belief_state(current_belief)
-
-        # Add positional encoding
-        projected = projected + self.pos_encoder
-
-        # If we have a current belief, we can use it as context
-        if current_belief is not None:
-            # Reshape current_belief to [batch_size, 1, hidden_dim]
-            context = current_belief.transpose(0, 1)
-            # Concatenate with projected input to form sequence
-            sequence = torch.cat([context, projected], dim=1)
-        else:
-            sequence = projected
-
-        # Process through transformer with appropriate mode (training or evaluation)
-        # In evaluation mode, this will use different behavior for dropout
-        with torch.set_grad_enabled(self.training):
-            transformer_output = self.transformer_encoder(sequence)
-
-            # Take the last token's output as the new belief state
-            new_belief = transformer_output[:, -1:, :].transpose(0, 1)
-
-            # Calculate belief distribution
-            logits = self.belief_head(new_belief.squeeze(0))
-
-            # Check if we're using continuous signal (determined earlier in forward pass)
-            if is_continuous_signal:
-                # For continuous signals, we need to output a single value
-                # We'll use the first dimension as our continuous prediction
-                belief_distribution = logits[:, :1]  # Just take the first element
-            else:
-                # For discrete signals, use softmax to get a distribution
-                temperature = 1  # Temperature for softmax
-                belief_distribution = F.softmax(logits / temperature, dim=-1)
-
-            # Ensure new_belief maintains shape [1, batch_size, hidden_dim]
-            new_belief = self.standardize_belief_state(new_belief)
-
-        return new_belief, belief_distribution
+from .transformer import InvertibleBeliefHead
 
 
 class EncoderNetwork(nn.Module):
@@ -194,6 +24,7 @@ class EncoderNetwork(nn.Module):
         num_agents,
         device=None,
         num_belief_states=None,
+        flow_layers=4,
     ):
         # Use the best available device if none is specified
 
@@ -237,10 +68,12 @@ class EncoderNetwork(nn.Module):
         nn.init.xavier_normal_(self.fc_mean.weight)
         nn.init.xavier_normal_(self.fc_logvar.weight)
 
-        # Add softmax head for opponent belief distribution
-        self.opponent_belief_head = nn.Linear(hidden_dim, num_belief_states)
-        nn.init.xavier_normal_(self.opponent_belief_head.weight)
-        nn.init.constant_(self.opponent_belief_head.bias, 0)
+        # Invertible opponent belief head
+        self.opponent_belief_head = InvertibleBeliefHead(
+            hidden_dim=hidden_dim,
+            num_belief_states=num_belief_states,
+            num_layers=flow_layers
+        )
 
     def forward(self, signal, actions, reward, next_signal, current_latent):
         """Encode the state into a latent distribution."""
@@ -314,12 +147,23 @@ class EncoderNetwork(nn.Module):
         mean = self.fc_mean(x)
         logvar = self.fc_logvar(x)
 
-        # Calculate opponent belief distribution
-        logits = self.opponent_belief_head(x)
-        temperature = 1  # Temperature for softmax
-        opponent_belief_distribution = F.softmax(logits / temperature, dim=-1)
+        # Calculate opponent belief distribution using invertible head
+        if is_continuous:
+            # For continuous signals, take only the first component
+            opponent_belief_distribution = self.opponent_belief_head(x)
+            opponent_belief_distribution = opponent_belief_distribution[:, :1]
+        else:
+            opponent_belief_distribution = self.opponent_belief_head(x)
 
         return mean, logvar, opponent_belief_distribution
+
+    def get_opponent_belief_log_prob(self, hidden_features: torch.Tensor) -> torch.Tensor:
+        """Get log probability of opponent belief transformation."""
+        return self.opponent_belief_head.log_prob(hidden_features)
+    
+    def inverse_opponent_belief_transform(self, belief_distribution: torch.Tensor) -> torch.Tensor:
+        """Inverse transform from opponent belief distribution to hidden features."""
+        return self.opponent_belief_head.inverse(belief_distribution)
 
 
 class DecoderNetwork(nn.Module):
@@ -620,6 +464,7 @@ class TemporalGNN(nn.Module):
         num_attn_heads=4,
         dropout=0.1,
         temporal_window_size=5,
+        flow_layers=4,
     ):
         super(TemporalGNN, self).__init__()
         self.device = device if device is not None else get_best_device()
@@ -628,85 +473,68 @@ class TemporalGNN(nn.Module):
         self.latent_dim = latent_dim
         self.num_agents = num_agents
         self.num_belief_states = num_belief_states
-        self.temporal_window_size = temporal_window_size
+        self.num_gnn_layers = num_gnn_layers
         self.num_attn_heads = num_attn_heads
+        self.dropout = dropout
+        self.temporal_window_size = temporal_window_size
 
-        # Support for both continuous and discrete signals
-        # For continuous signals, the node feature dimension is 1 + action_dim
-        # For discrete signals, the node feature dimension is num_belief_states + action_dim
-        self.continuous_node_feat_dim = 1 + action_dim  # continuous signal + action
-        self.discrete_node_feat_dim = (
-            num_belief_states + action_dim
-        )  # belief state + action
+        # Calculate feature dimensions based on input types
+        # For discrete signals: num_belief_states + action_dim
+        # For continuous signals: 1 + action_dim
+        self.discrete_feature_dim = num_belief_states + action_dim
+        self.continuous_feature_dim = 1 + action_dim
 
-        # Track which node feature dimension is being used
+        # Track which signal type is being used
         self.is_using_continuous = False
 
-        # Create separate GNN layers for continuous and discrete signals
-        # Graph layers for discrete signals (using Graph Attention Networks)
-        self.discrete_gnn_layers = nn.ModuleList()
-        self.discrete_gnn_layers.append(
+        # Create separate GNN layers for discrete and continuous inputs
+        # Each layer outputs hidden_dim features
+        self.discrete_gnn_layers = nn.ModuleList([
             GATConv(
-                self.discrete_node_feat_dim,
-                hidden_dim,
+                in_channels=self.discrete_feature_dim if i == 0 else hidden_dim,
+                out_channels=hidden_dim // num_attn_heads,
                 heads=num_attn_heads,
                 dropout=dropout,
+                concat=True,
             )
-        )
+            for i in range(num_gnn_layers)
+        ])
 
-        # Additional GNN layers for discrete signals
-        for i in range(num_gnn_layers - 1):
-            self.discrete_gnn_layers.append(
-                GATConv(
-                    hidden_dim * num_attn_heads,
-                    hidden_dim,
-                    heads=num_attn_heads,
-                    dropout=dropout,
-                )
-            )
-
-        # Graph layers for continuous signals (using Graph Attention Networks)
-        self.continuous_gnn_layers = nn.ModuleList()
-        self.continuous_gnn_layers.append(
+        self.continuous_gnn_layers = nn.ModuleList([
             GATConv(
-                self.continuous_node_feat_dim,
-                hidden_dim,
+                in_channels=self.continuous_feature_dim if i == 0 else hidden_dim,
+                out_channels=hidden_dim // num_attn_heads,
                 heads=num_attn_heads,
                 dropout=dropout,
+                concat=True,
             )
-        )
+            for i in range(num_gnn_layers)
+        ])
 
-        # Additional GNN layers for continuous signals
-        for i in range(num_gnn_layers - 1):
-            self.continuous_gnn_layers.append(
-                GATConv(
-                    hidden_dim * num_attn_heads,
-                    hidden_dim,
-                    heads=num_attn_heads,
-                    dropout=dropout,
-                )
-            )
+        # After GNN layers, we have hidden_dim features
+        self.feature_dim = hidden_dim
 
-        # Temporal attention layer
+        # Temporal attention mechanism
         self.temporal_attention = nn.MultiheadAttention(
-            embed_dim=hidden_dim * num_attn_heads,
+            embed_dim=hidden_dim,
             num_heads=num_attn_heads,
             dropout=dropout,
             batch_first=True,
         )
 
-        # Calculate feature dimension after all GNN layers
-        self.feature_dim = hidden_dim * num_attn_heads
-
-        # Output projection for latent space
+        # Output layers
         self.latent_mean = nn.Linear(self.feature_dim, latent_dim)
         self.latent_logvar = nn.Linear(self.feature_dim, latent_dim)
 
         # Output projection for action prediction
         self.action_predictor = nn.Linear(latent_dim, action_dim * num_agents)
 
-        # Belief distribution head
-        self.belief_head = nn.Linear(self.feature_dim, num_belief_states)
+        # Invertible belief distribution head
+        self.belief_head = InvertibleBeliefHead(
+            hidden_dim=self.feature_dim,
+            num_belief_states=num_belief_states,
+            num_layers=flow_layers
+        )
 
         # Feature adapter for aligning dimensions when combining GNN output with latent
         self.feature_adapter = nn.Linear(self.feature_dim, latent_dim)
@@ -746,8 +574,6 @@ class TemporalGNN(nn.Module):
         nn.init.constant_(self.latent_logvar.bias, 0)
         nn.init.xavier_normal_(self.action_predictor.weight)
         nn.init.constant_(self.action_predictor.bias, 0)
-        nn.init.xavier_normal_(self.belief_head.weight)
-        nn.init.constant_(self.belief_head.bias, 0)
         nn.init.xavier_normal_(self.feature_adapter.weight)
         nn.init.zeros_(self.feature_adapter.bias)
 
@@ -911,7 +737,7 @@ class TemporalGNN(nn.Module):
                     self.temporal_memory["attention_mask"][i, j] = 0
 
     def _apply_gnn(self, node_features, edge_index):
-        """Apply GNN layers to node features and capture attention weights."""
+        """Apply GNN layers to node features."""
         x = node_features
         attention_weights = None
 
@@ -943,11 +769,11 @@ class TemporalGNN(nn.Module):
         """Apply temporal attention to sequence of GNN outputs."""
         # Stack temporal sequence of GNN outputs
         if len(self.temporal_memory["node_features"]) == 0:
-            # If empty, return zero tensor
+            # If empty, return zero tensor with correct dimensions
             batch_size = 1  # Default batch size
             return torch.zeros(
                 batch_size,
-                self.hidden_dim * self.gnn_layers[-1].heads,
+                self.feature_dim,
                 device=self.device,
             )
 
@@ -1089,10 +915,13 @@ class TemporalGNN(nn.Module):
         mean = self.latent_mean(gnn_output)
         logvar = self.latent_logvar(gnn_output)
 
-        # Calculate belief distribution
-        logits = self.belief_head(gnn_output)
-        temperature = 0.5  # Temperature for softmax
-        belief_distribution = F.softmax(logits / temperature, dim=-1)
+        # Calculate belief distribution using invertible head
+        if is_continuous_signal:
+            # For continuous signals, take only the first component
+            belief_distribution = self.belief_head(gnn_output)
+            belief_distribution = belief_distribution[:, :1]
+        else:
+            belief_distribution = self.belief_head(gnn_output)
 
         return mean, logvar, belief_distribution
 
@@ -1244,3 +1073,11 @@ class TemporalGNN(nn.Module):
             # If there's any error in processing attention weights, return None
             print(f"Warning: Could not process attention weights: {e}")
             return None
+
+    def get_belief_log_prob(self, hidden_features: torch.Tensor) -> torch.Tensor:
+        """Get log probability of belief transformation."""
+        return self.belief_head.log_prob(hidden_features)
+    
+    def inverse_belief_transform(self, belief_distribution: torch.Tensor) -> torch.Tensor:
+        """Inverse transform from belief distribution to hidden features."""
+        return self.belief_head.inverse(belief_distribution)

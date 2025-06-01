@@ -1,6 +1,149 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
+from typing import Tuple
+
+
+class CouplingLayer(nn.Module):
+    """Coupling layer for normalizing flows."""
+    
+    def __init__(self, input_dim: int, hidden_dim: int, mask: torch.Tensor):
+        super().__init__()
+        self.mask = mask
+        
+        # Networks for scale and translation
+        self.scale_net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, input_dim),
+            nn.Tanh()  # Bounded output for stability
+        )
+        
+        self.translate_net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, input_dim)
+        )
+        
+    def forward(self, x: torch.Tensor, reverse: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass through coupling layer."""
+        if not reverse:
+            # Forward transformation
+            x_masked = x * self.mask
+            scale = self.scale_net(x_masked)
+            translate = self.translate_net(x_masked)
+            
+            # Apply transformation only to unmasked dimensions
+            y = x_masked + (1 - self.mask) * (x * torch.exp(scale) + translate)
+            
+            # Log determinant of Jacobian
+            log_det = torch.sum((1 - self.mask) * scale, dim=-1)
+            
+            return y, log_det
+        else:
+            # Inverse transformation
+            y_masked = x * self.mask
+            scale = self.scale_net(y_masked)
+            translate = self.translate_net(y_masked)
+            
+            # Apply inverse transformation
+            x = y_masked + (1 - self.mask) * (x - translate) * torch.exp(-scale)
+            
+            # Log determinant of Jacobian (negative for inverse)
+            log_det = -torch.sum((1 - self.mask) * scale, dim=-1)
+            
+            return x, log_det
+
+
+class InvertibleBeliefHead(nn.Module):
+    """Invertible network for belief distribution using normalizing flows."""
+    
+    def __init__(self, hidden_dim: int, num_belief_states: int, num_layers: int = 4):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.num_belief_states = num_belief_states
+        self.num_layers = num_layers
+        
+        # Create alternating masks for coupling layers
+        self.masks = []
+        for i in range(num_layers):
+            mask = torch.zeros(hidden_dim)
+            mask[::2] = 1 if i % 2 == 0 else 0
+            mask[1::2] = 0 if i % 2 == 0 else 1
+            self.register_buffer(f'mask_{i}', mask)
+            self.masks.append(mask)
+        
+        # Coupling layers
+        self.coupling_layers = nn.ModuleList([
+            CouplingLayer(hidden_dim, hidden_dim // 2, mask) 
+            for mask in self.masks
+        ])
+        
+        # Final projection to belief space
+        self.belief_projection = nn.Linear(hidden_dim, num_belief_states)
+        
+        # Base distribution (standard normal)
+        self.register_buffer('base_loc', torch.zeros(hidden_dim))
+        self.register_buffer('base_scale', torch.ones(hidden_dim))
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Transform hidden representation to belief distribution."""
+        batch_size = x.size(0)
+        
+        # Apply coupling layers
+        z = x
+        total_log_det = torch.zeros(batch_size, device=x.device)
+        
+        for layer in self.coupling_layers:
+            z, log_det = layer(z, reverse=False)
+            total_log_det += log_det
+        
+        # Project to belief space and apply softmax
+        belief_logits = self.belief_projection(z)
+        belief_distribution = F.softmax(belief_logits, dim=-1)
+        
+        return belief_distribution
+    
+    def inverse(self, belief_distribution: torch.Tensor) -> torch.Tensor:
+        """Inverse transformation from belief distribution to hidden representation."""
+        # Convert belief distribution back to logits (approximate)
+        eps = 1e-8
+        belief_clamped = torch.clamp(belief_distribution, eps, 1 - eps)
+        belief_logits = torch.log(belief_clamped)
+        
+        # Inverse projection (using pseudo-inverse for non-square matrices)
+        z = torch.linalg.pinv(self.belief_projection.weight) @ belief_logits.T
+        z = z.T
+        
+        # Apply inverse coupling layers
+        for layer in reversed(self.coupling_layers):
+            z, _ = layer(z, reverse=True)
+        
+        return z
+    
+    def log_prob(self, x: torch.Tensor) -> torch.Tensor:
+        """Compute log probability of the transformation."""
+        batch_size = x.size(0)
+        
+        # Apply coupling layers and accumulate log determinants
+        z = x
+        total_log_det = torch.zeros(batch_size, device=x.device)
+        
+        for layer in self.coupling_layers:
+            z, log_det = layer(z, reverse=False)
+            total_log_det += log_det
+        
+        # Base distribution log probability
+        base_dist = torch.distributions.Normal(self.base_loc, self.base_scale)
+        base_log_prob = base_dist.log_prob(z).sum(dim=-1)
+        
+        # Total log probability
+        return base_log_prob + total_log_det
 
 
 class TransformerBeliefProcessor(nn.Module):
@@ -15,6 +158,7 @@ class TransformerBeliefProcessor(nn.Module):
         nhead: int = 4,
         num_layers: int = 2,
         dropout: float = 0.1,
+        flow_layers: int = 4,
     ):
         super().__init__()
         self.device = device
@@ -41,15 +185,18 @@ class TransformerBeliefProcessor(nn.Module):
             encoder_layer=encoder_layer, num_layers=num_layers
         )
 
-        # Output head
-        self.belief_head = nn.Linear(hidden_dim, num_belief_states)
+        # Invertible belief head
+        self.belief_head = InvertibleBeliefHead(
+            hidden_dim=hidden_dim,
+            num_belief_states=num_belief_states,
+            num_layers=flow_layers
+        )
 
         self._init_parameters()
 
     def _init_parameters(self):
         nn.init.xavier_normal_(self.signal_projection.weight)
         nn.init.xavier_normal_(self.continuous_signal_projection.weight)
-        nn.init.xavier_normal_(self.belief_head.weight)
         nn.init.normal_(self.pos_encoder, mean=0.0, std=0.02)
 
     def standardize_belief_state(self, belief):
@@ -93,12 +240,22 @@ class TransformerBeliefProcessor(nn.Module):
         output = self.transformer_encoder(sequence)
         new_belief = output[:, -1:, :].transpose(0, 1)
 
-        # Get belief distribution
-        logits = self.belief_head(new_belief.squeeze(0))
-
+        # Get belief distribution using invertible head
+        hidden_features = new_belief.squeeze(0)
+        
         if is_continuous:
-            belief_distribution = logits[:, :1]
+            # For continuous signals, take only the first component
+            belief_distribution = self.belief_head(hidden_features)
+            belief_distribution = belief_distribution[:, :1]
         else:
-            belief_distribution = F.softmax(logits, dim=-1)
+            belief_distribution = self.belief_head(hidden_features)
 
         return self.standardize_belief_state(new_belief), belief_distribution
+
+    def get_belief_log_prob(self, hidden_features: torch.Tensor) -> torch.Tensor:
+        """Get log probability of belief transformation."""
+        return self.belief_head.log_prob(hidden_features)
+    
+    def inverse_belief_transform(self, belief_distribution: torch.Tensor) -> torch.Tensor:
+        """Inverse transform from belief distribution to hidden features."""
+        return self.belief_head.inverse(belief_distribution)

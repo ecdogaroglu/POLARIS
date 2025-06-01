@@ -18,8 +18,8 @@ from ..networks.gnn import (
     PolicyNetwork,
     QNetwork,
     TemporalGNN,
-    TransformerBeliefProcessor,
 )
+from ..networks.transformer import TransformerBeliefProcessor
 from ..utils.device import get_best_device
 from ..utils.encoding import encode_observation
 

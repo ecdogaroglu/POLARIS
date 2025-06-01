@@ -162,21 +162,16 @@ def update_metrics(
 
     # Update agent beliefs and incentives for strategic experimentation
     if "agent_beliefs" in info and "env_params" in info:
-        print(f"DEBUG: Found agent_beliefs and env_params in info")
         env_params = info["env_params"]
         safe_payoff = env_params.get("safe_payoff")
         drift_rates = env_params.get("drift_rates")
         jump_rates = env_params.get("jump_rates")
         jump_sizes = env_params.get("jump_sizes")
         
-        print(f"DEBUG: agent_beliefs = {info['agent_beliefs']}")
-        print(f"DEBUG: env_params = {env_params}")
-        
         for agent_id, agent_belief in info["agent_beliefs"].items():
             # Store agent beliefs
             if "agent_beliefs" in metrics and agent_id in metrics["agent_beliefs"]:
                 metrics["agent_beliefs"][agent_id].append(agent_belief)
-                print(f"DEBUG: Stored belief {agent_belief} for agent {agent_id}")
             
             # Calculate and store incentives
             if "agent_incentives" in metrics and agent_id in metrics["agent_incentives"]:
@@ -188,12 +183,6 @@ def update_metrics(
                     jump_sizes,
                 )
                 metrics["agent_incentives"][agent_id].append(incentive)
-                print(f"DEBUG: Calculated and stored incentive {incentive} for agent {agent_id}")
-    else:
-        if "agent_beliefs" not in info:
-            print("DEBUG: agent_beliefs not found in info")
-        if "env_params" not in info:
-            print("DEBUG: env_params not found in info")
 
     # Update KL divergence based on dynamic MPE allocation
     if "policy_means" in metrics and "policy_stds" in metrics:
