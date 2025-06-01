@@ -126,8 +126,30 @@ class LearningCurvePlotter(MultiAgentPlotter):
         fig, ax = self.create_figure()
         colors = self.get_colors()
 
+        # Check if we have multi-agent data (arrays at each time step) or scalar data
+        first_episode_first_step = episodic_data[0][0]
+        is_multi_agent = isinstance(first_episode_first_step, (list, np.ndarray))
+        
+        if is_multi_agent:
+            # Handle multi-agent case: average across agents at each time step
+            processed_data = []
+            for ep_data in episodic_data:
+                # For each episode, convert multi-agent data to average across agents
+                episode_averages = []
+                for step_data in ep_data[:min_length]:
+                    if isinstance(step_data, (list, np.ndarray)):
+                        # Average across agents for this time step
+                        episode_averages.append(np.mean(step_data))
+                    else:
+                        # Single value (shouldn't happen in multi-agent case, but handle it)
+                        episode_averages.append(step_data)
+                processed_data.append(episode_averages)
+        else:
+            # Handle single-agent case: data is already scalar
+            processed_data = [ep_data[:min_length] for ep_data in episodic_data]
+
         # Convert to numpy array for easier computation
-        data_array = np.array([ep_data[:min_length] for ep_data in episodic_data])
+        data_array = np.array(processed_data)
 
         # Calculate mean and confidence intervals
         mean_probs = np.mean(data_array, axis=0)
