@@ -90,7 +90,6 @@ def create_sweep_config(num_agents, episodes, horizon, seed, device='cpu') -> Ex
     agent_config = AgentConfig(
         learning_rate=1e-3,
         discount_factor=0.0,  # Use average reward for strategic experimentation
-        use_gnn=True,
         use_si=False,
         si_importance=10,
         si_damping=0.1,

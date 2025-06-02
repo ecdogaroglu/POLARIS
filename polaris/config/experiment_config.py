@@ -15,7 +15,13 @@ class AgentConfig:
     entropy_weight: float = 0.01
     kl_weight: float = 0.01
     target_update_rate: float = 0.005
-    use_gnn: bool = True
+    
+    # GNN configuration (always used)
+    num_gnn_layers: int = 2
+    num_attn_heads: int = 4
+    temporal_window_size: int = 5
+    
+    # Synaptic Intelligence
     use_si: bool = False
     si_importance: float = 100.0
     si_damping: float = 0.1

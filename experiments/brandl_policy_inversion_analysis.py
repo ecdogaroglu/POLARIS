@@ -49,7 +49,6 @@ def main():
                        choices=['complete', 'ring', 'star', 'random'], help='Network type')
     parser.add_argument('--network-density', type=float, default=0.5, help='Network density for random networks')
     parser.add_argument('--output', type=str, default='results', help='Output directory')
-    parser.add_argument('--use-gnn', action='store_true', default=True, help='Use GNN inference')
     parser.add_argument('--device', type=str, default="cpu", choices=['cpu', 'mps', 'cuda'], 
                        help='Device to use')
     parser.add_argument('--grid-resolution', type=int, default=50, help='Resolution of belief/latent grid for heatmap')
@@ -142,7 +141,6 @@ def create_brandl_config(args) -> ExperimentConfig:
     agent_config = AgentConfig(
         learning_rate=1e-3,
         discount_factor=0.99,
-        use_gnn=args.use_gnn,
         use_si=False,  # Disable SI for cleaner training
         hidden_dim=256,
         belief_dim=256,
@@ -167,10 +165,8 @@ def create_brandl_config(args) -> ExperimentConfig:
         network_density=args.network_density
     )
     
-    # Experiment name
+    # Experiment name (GNN is always used now, so no need for _gnn suffix)
     exp_name = f"brandl_policy_inversion_training_agents_{args.agents}"
-    if args.use_gnn:
-        exp_name += "_gnn"
     
     # Create complete configuration
     config = ExperimentConfig(
@@ -205,10 +201,8 @@ def find_latest_model_path(args) -> Path:
     """Find the most recent model path for the given configuration."""
     base_dir = Path(args.output)
     
-    # Look for directories matching the pattern
+    # Look for directories matching the pattern (GNN is always used now, so no _gnn suffix)
     pattern = f"brandl_*_agents_{args.agents}"
-    if args.use_gnn:
-        pattern += "_gnn"
     
     matching_dirs = list(base_dir.glob(pattern))
     
@@ -245,7 +239,6 @@ def create_agents_for_analysis(env, args):
             learning_rate=1e-3,
             discount_factor=0.99,
             device=args.device,
-            use_gnn=args.use_gnn,
             continuous_actions=False
         )
         agents[agent_id] = agent
@@ -451,7 +444,7 @@ def generate_combined_heatmap(agents, belief_grids, latent_grids, output_dir, ar
                         belief_hidden[0, :len(belief_dist)] = belief_dist
                     
                     # Convert opponent belief distribution to latent representation for policy input
-                    if args.use_gnn and hasattr(agent.inference_module, 'inverse_belief_transform'):
+                    if hasattr(agent.inference_module, 'inverse_belief_transform'):
                         # GNN case: use invertible opponent belief head
                         latent_repr = agent.inference_module.inverse_belief_transform(
                             opponent_belief_dist.unsqueeze(0)
@@ -518,7 +511,6 @@ def save_analysis_summary(agents, output_dir, args):
             "num_agents": args.agents,
             "network_type": args.network_type,
             "signal_accuracy": args.signal_accuracy,
-            "use_gnn": args.use_gnn,
             "grid_resolution": args.grid_resolution,
             "device": args.device
         },
@@ -526,10 +518,6 @@ def save_analysis_summary(agents, output_dir, args):
         "grid_contents": {
             "belief_grids": "actual belief distributions (probability distributions over states)",
             "latent_grids": "actual opponent belief distributions (probability distributions over opponent states)"
-        },
-        "invertible_components": {
-            "transformer_belief_head": "converts belief distributions to hidden representations for policy input",
-            "gnn_opponent_belief_head": "converts opponent belief distributions to latent representations for policy input" if args.use_gnn else "not used"
         },
         "analysis_method": "invertible transformations applied only when feeding to policy networks",
         "output_files": [

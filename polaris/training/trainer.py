@@ -534,29 +534,25 @@ class Trainer:
         Raises:
             AttentionWeightCaptureError: If attention weights cannot be captured from any agent
         """
-        # Only capture attention weights if using GNN
-        if not (hasattr(self.args, "use_gnn") and self.args.use_gnn):
-            return None
-
+        # Always capture attention weights since GNN is always used now
         for agent_id, agent in self.agents.items():
-            if hasattr(agent, "use_gnn") and agent.use_gnn:
-                try:
-                    # Get the inference module
-                    if hasattr(agent, "inference_module"):
-                        # Get attention weights
-                        attention_weights = agent.inference_module.get_attention_weights()
-                        if attention_weights is not None:
-                            # Get the latest edge index if available
-                            if hasattr(agent.inference_module, "latest_edge_index"):
-                                edge_index = agent.inference_module.latest_edge_index
-                                attention_matrix = agent.inference_module.get_attention_matrix(
-                                    edge_index, attention_weights
-                                )
-                                if attention_matrix is not None:
-                                    return attention_matrix
-                except Exception as e:
-                    # Continue to next agent, but collect errors
-                    continue
+            try:
+                # Get the inference module
+                if hasattr(agent, "inference_module"):
+                    # Get attention weights
+                    attention_weights = agent.inference_module.get_attention_weights()
+                    if attention_weights is not None:
+                        # Get the latest edge index if available
+                        if hasattr(agent.inference_module, "latest_edge_index"):
+                            edge_index = agent.inference_module.latest_edge_index
+                            attention_matrix = agent.inference_module.get_attention_matrix(
+                                edge_index, attention_weights
+                            )
+                            if attention_matrix is not None:
+                                return attention_matrix
+            except Exception as e:
+                # Continue to next agent, but collect errors
+                continue
         
         # If we get here, no agent could provide attention weights
         # This might be normal in some cases, so we'll return None instead of raising
@@ -891,13 +887,10 @@ class Trainer:
             f"Initializing {self.env.num_agents} agents{' for evaluation' if self.args.eval_only else ''}..."
         )
 
-        # Log if using GNN
-        if self.args.use_gnn:
-            print(
-                f"Using Graph Neural Network with {self.args.gnn_layers} layers, {self.args.attn_heads} attention heads, and temporal window of {self.args.temporal_window}"
-            )
-        else:
-            print("Using traditional encoder-decoder inference module")
+        # Log GNN configuration (always used now)
+        print(
+            f"Using Graph Neural Network with {self.args.gnn_layers} layers, {self.args.attn_heads} attention heads, and temporal window of {self.args.temporal_window}"
+        )
 
         # Log if excluding final layers from SI
         if (
@@ -942,7 +935,13 @@ class Trainer:
                 device=self.args.device,
                 buffer_capacity=self.args.buffer_capacity,
                 max_trajectory_length=self.args.horizon,
-                use_gnn=self.args.use_gnn,
+                
+                # GNN configuration (always used)
+                num_gnn_layers=getattr(self.args, "gnn_layers", 2),
+                num_attn_heads=getattr(self.args, "attn_heads", 4),
+                temporal_window_size=getattr(self.args, "temporal_window", 5),
+                
+                # Synaptic Intelligence configuration
                 use_si=self.args.use_si if hasattr(self.args, "use_si") else False,
                 si_importance=(
                     self.args.si_importance

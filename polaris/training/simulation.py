@@ -34,11 +34,18 @@ def run_experiment(env, config) -> Tuple[Dict, Dict]:
         args.buffer_capacity = config.training.buffer_capacity
         args.batch_size = config.training.batch_size
         args.update_interval = getattr(config.training, "update_interval", 10)
-        args.use_gnn = config.agent.use_gnn
+        
+        # GNN configuration (always used)
+        args.gnn_layers = getattr(config.agent, "num_gnn_layers", 2)
+        args.attn_heads = getattr(config.agent, "num_attn_heads", 4)
+        args.temporal_window = getattr(config.agent, "temporal_window_size", 5)
+        
+        # SI configuration
         args.use_si = config.agent.use_si
         args.si_importance = config.agent.si_importance
         args.si_damping = config.agent.si_damping
         args.si_exclude_final_layers = config.agent.si_exclude_final_layers
+        
         args.continuous_actions = getattr(
             config.environment, "continuous_actions", False
         )
@@ -60,11 +67,6 @@ def run_experiment(env, config) -> Tuple[Dict, Dict]:
         # Environment specific args
         args.network_type = config.environment.network_type
         args.network_density = getattr(config.environment, "network_density", 0.5)
-
-        # GNN specific args (with defaults)
-        args.gnn_layers = 2
-        args.attn_heads = 4
-        args.temporal_window = 5
     else:
         # Assume config is already an args object
         args = config

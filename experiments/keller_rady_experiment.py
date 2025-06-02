@@ -34,15 +34,14 @@ def main():
     parser.add_argument('--output', type=str, default='results', help='Output directory')
     parser.add_argument('--eval', action='store_true', help='Evaluation mode')
     parser.add_argument('--load', type=str, default=None, help='Path to load models')
-    parser.add_argument('--use-gnn', action='store_true', default=True, help='Use GNN inference')
-    parser.add_argument('--use-si', action='store_true', default=False, help='Use Synaptic Intelligence')
+    parser.add_argument('--use-si', action='store_true', help='Use Synaptic Intelligence')
     parser.add_argument('--si-importance', type=float, default=100.0, help='SI importance weight')
-    parser.add_argument('--plot-allocations', action='store_true', default=True, help='Plot allocations')
-    parser.add_argument('--plot-incentives', action='store_true', default=True, help='Plot agent incentives')
-    parser.add_argument('--plot-states', action='store_true', default=True, help='Plot internal states')
-    parser.add_argument('--latex-style', action='store_true', default=True, help='Use LaTeX styling')
-    parser.add_argument('--device', type=str, default="cpu", choices=['cpu', 'mps', 'cuda'], 
-                       help='Force specific device (overrides auto-detection)')
+    parser.add_argument('--plot-allocations', action='store_true', help='Plot allocations')
+    parser.add_argument('--plot-incentives', action='store_true', help='Plot agent incentives')
+    parser.add_argument('--plot-states', action='store_true', help='Plot internal states')
+    parser.add_argument('--latex-style', action='store_true', help='Use LaTeX styling')
+    parser.add_argument('--device', type=str, default=get_best_device(), choices=['cpu', 'mps', 'cuda'], 
+                       help='Device to use')
     args = parser.parse_args()
     
     # Set initial random seeds
@@ -91,15 +90,10 @@ def main():
         print(f"True state will be randomly selected at the beginning of each episode with different seeds")
     
     # Print model architecture information
-    if config.agent.use_gnn:
-        print(f"Using Graph Neural Network")
-    else:
-        print("Using traditional encoder-decoder inference module")
+    print("Using Graph Neural Network")
     
     if config.agent.use_si:
-        print(f"Using Synaptic Intelligence with importance {config.agent.si_importance} and damping {config.agent.si_damping}")
-        if config.agent.si_exclude_final_layers:
-            print("Excluding final layers from SI protection")
+        print(f"Using Synaptic Intelligence with importance {config.agent.si_importance}")
     
     # Run experiment
     print(f"\nRunning experiment...")
@@ -117,7 +111,6 @@ def create_strategic_config(args) -> ExperimentConfig:
     agent_config = AgentConfig(
         learning_rate=1e-3,
         discount_factor=0.0,  # Use average reward for strategic experimentation
-        use_gnn=args.use_gnn,
         use_si=args.use_si,
         si_importance=args.si_importance,
         si_damping=0.1,
@@ -147,10 +140,8 @@ def create_strategic_config(args) -> ExperimentConfig:
         continuous_actions=True
     )
     
-    # Experiment name
+    # Experiment name (GNN is always used now, so no need for _gnn suffix)
     exp_name = f"strategic_experimentation_agents_{args.agents}"
-    if args.use_gnn:
-        exp_name += "_gnn"
     if args.use_si:
         exp_name += "_si"
     

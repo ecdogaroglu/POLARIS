@@ -35,7 +35,6 @@ Outputs:
 - average_private_signals.png: Average private signals received over time
 - agent_performance_results.json: Complete numerical results with learning rates
 
-Author: POLARIS Framework
 """
 
 import os
@@ -47,6 +46,7 @@ import matplotlib.pyplot as plt
 from scipy import stats
 from collections import Counter
 import networkx as nx
+from types import SimpleNamespace
 
 from polaris.config.experiment_config import (
     ExperimentConfig, AgentConfig, TrainingConfig, BrandlConfig
@@ -65,8 +65,27 @@ RESULTS_DIR = Path("results/brandl_experiment/agent_performance")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_accuracy, seed=0, device='cpu', use_gnn=True):
-    """Run Brandl experiment for multiple episodes and return individual agent performance metrics with confidence intervals."""
+def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_accuracy, seed=0, device='cpu'):
+    """Run experiment for specified number of agents with the given network type and return episode metrics."""
+    
+    # Create a synthetic args object
+    args = SimpleNamespace(
+        num_agents=num_agents,
+        signal_accuracy=signal_accuracy,
+        network_type=network_type,
+        network_density=0.5,
+        episodes=episodes,
+        horizon=horizon,
+        seed=seed,
+        output='results',
+        eval=False,
+        load=None,
+        use_si=False,
+        si_importance=100.0,
+        device=device,
+        plot_states=False,
+        latex_style=False
+    )
     
     # Store results from all episodes
     all_episodes_data = []
@@ -80,7 +99,6 @@ def run_agent_experiment(num_agents, network_type, episodes, horizon, signal_acc
         agent_config = AgentConfig(
             learning_rate=1e-3,
             discount_factor=0.99,
-            use_gnn=use_gnn,
             use_si=False
         )
         
@@ -1466,14 +1484,8 @@ def main():
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
     parser.add_argument('--device', type=str, default='cpu', choices=['cpu', 'mps', 'cuda'],
                        help='Device to use')
-    parser.add_argument('--use-gnn', action='store_true', default=True, help='Enable Graph Neural Network for agents')
-    parser.add_argument('--no-gnn', action='store_true', help='Disable Graph Neural Network for agents')
     
     args = parser.parse_args()
-    
-    # Handle GNN configuration
-    if args.no_gnn:
-        args.use_gnn = False
     
     print("=== POLARIS Brandl Social Learning Agent Performance Sweep ===")
     print("This script analyzes individual agent learning performance across different")
@@ -1486,7 +1498,7 @@ def main():
     print(f"   • Horizon (steps): {args.horizon}")
     print(f"   • Signal accuracy: {args.signal_accuracy}")
     print(f"   • Device: {args.device}")
-    print(f"   • Using GNN: {args.use_gnn}")
+    print("   • Using Graph Neural Network")
     print()
     print("🔍 Analysis Focus:")
     print("   • Fastest vs slowest agent trajectories with 95% confidence intervals")
@@ -1511,7 +1523,7 @@ def main():
             
             performance = run_agent_experiment(
                 num_agents, network_type, args.episodes, args.horizon,
-                args.signal_accuracy, args.seed, args.device, args.use_gnn
+                args.signal_accuracy, args.seed, args.device
             )
             
             results[network_type][num_agents] = performance

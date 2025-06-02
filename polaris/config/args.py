@@ -139,12 +139,7 @@ def parse_args():
         "--kl-weight", type=float, default=10, help="KL weight for inference"
     )
 
-    # Model type selection
-    parser.add_argument(
-        "--use-gnn",
-        action="store_true",
-        help="Use Graph Neural Network with temporal attention",
-    )
+    # GNN configuration (always used)
     parser.add_argument(
         "--gnn-layers", type=int, default=2, help="Number of GNN layers"
     )

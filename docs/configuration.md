@@ -111,8 +111,7 @@ agent_config = {
 
 ```python
 advanced_config = {
-    # Graph Neural Networks
-    'use_gnn': False,                    # Enable GNN-based inference
+    # Graph Neural Networks (default and only architecture)
     'gnn_layers': 2,                     # Number of GNN layers
     'attn_heads': 4,                     # Number of attention heads
     'temporal_window': 5,                # Temporal window size
@@ -177,9 +176,10 @@ network_config = {
 
 ### Graph Neural Network Configuration
 
+POLARIS uses Graph Neural Networks by default for all inference tasks. The GNN architecture provides superior performance for modeling agent interactions.
+
 ```python
 gnn_config = {
-    'use_gnn': True,                     # Enable GNN
     'gnn_layers': 2,                     # Number of GNN layers
     'attn_heads': 4,                     # Number of attention heads
     'temporal_window': 5,                # Temporal window size for memory
@@ -250,10 +250,9 @@ POLARIS provides comprehensive command-line argument support:
 --kl-weight FLOAT                    # KL divergence weight
 
 # Advanced features
---use-gnn                            # Enable Graph Neural Networks
---gnn-layers INT                     # Number of GNN layers
---attn-heads INT                     # Number of attention heads
---temporal-window INT                # Temporal window size
+--gnn-layers INT                     # Number of GNN layers (default: 2)
+--attn-heads INT                     # Number of attention heads (default: 4)
+--temporal-window INT                # Temporal window size (default: 5)
 
 # Synaptic Intelligence
 --use-si                             # Enable Synaptic Intelligence
@@ -318,7 +317,6 @@ config = get_default_config('strategic_experimentation')
 config.update({
     'num_agents': 4,
     'continuous_actions': True,
-    'use_gnn': True,
     'gnn_layers': 3,
     'attn_heads': 8,
     'use_si': True,
@@ -331,13 +329,12 @@ config.update({
 ### Command-Line Examples
 
 ```bash
-# Train Brandl environment with GNN
+# Train Brandl environment with GNN (default architecture)
 python -m polaris.simulation \
     --environment-type brandl \
     --num-agents 10 \
     --num-states 5 \
     --network-type complete \
-    --use-gnn \
     --gnn-layers 3 \
     --save-model
 
@@ -371,7 +368,6 @@ from polaris.config.experiment_config import (
 # Create structured configuration
 agent_config = AgentConfig(
     hidden_dim=256,
-    use_gnn=True,
     use_si=True
 )
 
@@ -431,4 +427,4 @@ ENVIRONMENT_DEFAULTS = {
 }
 ```
 
-For complete parameter descriptions and advanced usage, see the [API Reference](api.md) and examine the default configuration files in `polaris/config/`. 
+For complete parameter descriptions and advanced usage, see the [API Reference](api.md) and examine the default configuration files in `polaris/config/`.

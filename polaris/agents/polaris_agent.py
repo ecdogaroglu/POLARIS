@@ -11,14 +11,9 @@ from polaris.algorithms.regularization.si import (
 )
 
 from ..agents.memory.replay_buffer import ReplayBuffer
-from ..networks.gnn import (
-    ContinuousPolicyNetwork,
-    DecoderNetwork,
-    EncoderNetwork,
-    PolicyNetwork,
-    QNetwork,
-    TemporalGNN,
-)
+from ..networks.temporal_gnn import TemporalGNN
+from ..networks.policy import ContinuousPolicyNetwork, PolicyNetwork
+from ..networks.qnetwork import QNetwork
 from ..networks.transformer import TransformerBeliefProcessor
 from ..utils.device import get_best_device
 from ..utils.encoding import encode_observation
@@ -35,7 +30,7 @@ class ModelComponentError(RuntimeError):
 
 
 class POLARISAgent:
-    """POLARIS agent for social learning with additional advantage-based Transformer training."""
+    """POLARIS agent for social learning with GNN-based inference."""
 
     def __init__(
         self,
@@ -55,30 +50,40 @@ class POLARISAgent:
         device=None,
         buffer_capacity=1000,
         max_trajectory_length=50,
-        use_gnn=True,
         use_si=False,
         si_importance=100.0,
         si_damping=0.1,
         si_exclude_final_layers=False,
         continuous_actions=False,
+        num_gnn_layers=2,
+        num_attn_heads=4,
+        temporal_window_size=5,
     ):
 
         # Use the best available device if none is specified
         if device is None:
             device = get_best_device()
+
         self.agent_id = agent_id
         self.num_agents = num_agents
         self.num_states = num_states
         self.observation_dim = observation_dim
         self.action_dim = action_dim
-        self.device = device
+        self.hidden_dim = hidden_dim
+        self.belief_dim = belief_dim
+        self.latent_dim = latent_dim
+        self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.entropy_weight = entropy_weight
         self.kl_weight = kl_weight
         self.target_update_rate = target_update_rate
+        self.device = device
+        self.buffer_capacity = buffer_capacity
         self.max_trajectory_length = max_trajectory_length
-        self.latent_dim = latent_dim
-        self.use_gnn = use_gnn
+        self.use_si = use_si
+        self.si_importance = si_importance
+        self.si_damping = si_damping
+        self.si_exclude_final_layers = si_exclude_final_layers
         self.continuous_actions = continuous_actions
 
         # Global variables for action logits and neighbor action logits
@@ -106,39 +111,19 @@ class POLARISAgent:
             dropout=0.1,
         ).to(device)
 
-        # Create inference module (GNN or traditional encoder-decoder)
-        if use_gnn:
-            self.inference_module = TemporalGNN(
-                hidden_dim=hidden_dim,
-                action_dim=action_dim,
-                latent_dim=latent_dim,
-                num_agents=num_agents,
-                device=device,
-                num_belief_states=num_states,
-                num_gnn_layers=2,
-                num_attn_heads=4,
-                dropout=0.1,
-                temporal_window_size=5,
-            ).to(device)
-        else:
-            # Use the traditional encoder-decoder approach
-            self.encoder = EncoderNetwork(
-                action_dim=action_dim,
-                latent_dim=latent_dim,
-                hidden_dim=hidden_dim,
-                num_agents=num_agents,
-                device=device,
-                num_belief_states=num_states,
-            ).to(device)
-
-            self.decoder = DecoderNetwork(
-                action_dim=action_dim,
-                latent_dim=latent_dim,
-                hidden_dim=hidden_dim,
-                num_agents=num_agents,
-                num_belief_states=num_states,
-                device=device,
-            ).to(device)
+        # Create GNN-based inference module (always used now)
+        self.inference_module = TemporalGNN(
+            hidden_dim=hidden_dim,
+            action_dim=action_dim,
+            latent_dim=latent_dim,
+            num_agents=num_agents,
+            device=device,
+            num_belief_states=num_states,
+            num_gnn_layers=num_gnn_layers,
+            num_attn_heads=num_attn_heads,
+            dropout=0.1,
+            temporal_window_size=temporal_window_size,
+        ).to(device)
 
         # Use appropriate policy network based on action space
         if continuous_actions:
@@ -220,15 +205,9 @@ class POLARISAgent:
         )
 
         # Set up inference optimizer based on which inference module we're using
-        if self.use_gnn:
-            self.inference_optimizer = torch.optim.Adam(
-                self.inference_module.parameters(), lr=learning_rate
-            )
-        else:
-            self.inference_optimizer = torch.optim.Adam(
-                list(self.encoder.parameters()) + list(self.decoder.parameters()),
-                lr=learning_rate,
-            )
+        self.inference_optimizer = torch.optim.Adam(
+            self.inference_module.parameters(), lr=learning_rate
+        )
 
         self.gain_optimizer = torch.optim.Adam([self.gain_parameter], lr=learning_rate)
 
@@ -261,11 +240,6 @@ class POLARISAgent:
         self.episode_step = 0
 
         # SI setup
-        self.use_si = use_si
-        self.si_importance = si_importance
-        self.si_damping = si_damping
-        self.si_exclude_final_layers = si_exclude_final_layers
-
         if self.use_si:
             # Use a much higher importance factor for better protection against forgetting
 
@@ -338,16 +312,10 @@ class POLARISAgent:
     def infer_latent(self, signal, neighbor_actions, reward, next_signal):
         """Infer latent state of neighbors based on our observations which already contain neighbor actions."""
 
-        if self.use_gnn:
-            # Use the GNN for inference
-            mean, logvar, opponent_belief_distribution = self.inference_module(
-                signal, neighbor_actions, reward, next_signal, self.current_latent
-            )
-        else:
-            # Use the traditional encoder
-            mean, logvar, opponent_belief_distribution = self.encoder(
-                signal, neighbor_actions, reward, next_signal, self.current_latent
-            )
+        # Use the GNN for inference
+        mean, logvar, opponent_belief_distribution = self.inference_module(
+            signal, neighbor_actions, reward, next_signal, self.current_latent
+        )
 
         # Sample based on reparameterized distribution
         # Ref: https://github.com/kampta/pytorch-distributions/blob/master/gaussian_vae.py
@@ -406,11 +374,7 @@ class POLARISAgent:
     def set_train_mode(self):
         """Set all networks to training mode."""
         self.belief_processor.train()
-        if self.use_gnn:
-            self.inference_module.train()
-        else:
-            self.encoder.train()
-            self.decoder.train()
+        self.inference_module.train()
         self.policy.train()
         self.q_network1.train()
         self.q_network2.train()
@@ -420,11 +384,7 @@ class POLARISAgent:
     def set_eval_mode(self):
         """Set all networks to evaluation mode."""
         self.belief_processor.eval()
-        if self.use_gnn:
-            self.inference_module.eval()
-        else:
-            self.encoder.eval()
-            self.decoder.eval()
+        self.inference_module.eval()
         self.policy.eval()
         self.q_network1.eval()
         self.q_network2.eval()
@@ -463,8 +423,7 @@ class POLARISAgent:
             )
 
         # If using GNN, reset its temporal memory
-        if self.use_gnn:
-            self.inference_module.reset_memory()
+        self.inference_module.reset_memory()
 
     def select_action(self):
         """Select action based on current belief and latent."""
@@ -595,63 +554,38 @@ class POLARISAgent:
     ):
         """Update inference module with FURTHER-style temporal KL."""
 
-        if self.use_gnn:
-            # For GNN inference module
-            # We need dummy rewards for the GNN forward pass
-            batch_size = signals.size(0)
-            dummy_rewards = torch.zeros(batch_size, 1, device=self.device)
+        # We need dummy rewards for the GNN forward pass
+        batch_size = signals.size(0)
+        dummy_rewards = torch.zeros(batch_size, 1, device=self.device)
 
-            # Forward pass through GNN to get new distribution parameters
-            # Note: we detach next_latents to avoid gradients flowing back through the target network
-            new_means, new_logvars, _ = self.inference_module(
-                signals, neighbor_actions, dummy_rewards, next_signals
+        # Forward pass through GNN to get new distribution parameters
+        # Note: we detach next_latents to avoid gradients flowing back through the target network
+        new_means, new_logvars, _ = self.inference_module(
+            signals, neighbor_actions, dummy_rewards, next_signals, next_latents.detach()
+        )
+
+        # Generate action predictions using the current batch
+        batch_neighbor_logits = self.inference_module.predict_actions(
+            signals, next_latents.detach()
+        )
+
+        # Reshape batch_neighbor_logits if needed for cross entropy
+        if batch_neighbor_logits.dim() == 3:
+            batch_size, seq_len, action_dim = batch_neighbor_logits.shape
+            batch_neighbor_logits = batch_neighbor_logits.view(
+                batch_size * seq_len, action_dim
             )
-
-            # Generate action predictions using the current batch
-            batch_neighbor_logits = self.inference_module.predict_actions(
-                signals, next_latents.detach()
-            )
-
-            # Reshape batch_neighbor_logits if needed for cross entropy
-            if batch_neighbor_logits.dim() == 3:
-                batch_size, seq_len, action_dim = batch_neighbor_logits.shape
-                batch_neighbor_logits = batch_neighbor_logits.view(
-                    batch_size * seq_len, action_dim
-                )
-                neighbor_actions_reshaped = neighbor_actions.view(-1)
-            else:
-                neighbor_actions_reshaped = neighbor_actions
-
-            # Calculate reconstruction loss
-            recon_loss = F.cross_entropy(
-                batch_neighbor_logits, neighbor_actions_reshaped
-            )
-
-            # Calculate temporal KL divergence with numerical stability
-            kl_loss = self._calculate_temporal_kl_divergence(new_means, new_logvars)
+            neighbor_actions_reshaped = neighbor_actions.view(-1)
         else:
-            # For traditional encoder-decoder
-            # Generate fresh neighbor action logits for the batch
-            # Use the decoder directly on the batch
-            batch_neighbor_logits = self.decoder(signals, next_latents)
+            neighbor_actions_reshaped = neighbor_actions
 
-            # Reshape if needed for cross entropy
-            if batch_neighbor_logits.dim() == 3:
-                batch_size, seq_len, action_dim = batch_neighbor_logits.shape
-                batch_neighbor_logits = batch_neighbor_logits.view(
-                    batch_size * seq_len, action_dim
-                )
-                neighbor_actions_reshaped = neighbor_actions.view(-1)
-            else:
-                neighbor_actions_reshaped = neighbor_actions
+        # Calculate reconstruction loss
+        recon_loss = F.cross_entropy(
+            batch_neighbor_logits, neighbor_actions_reshaped
+        )
 
-            # Calculate reconstruction loss
-            recon_loss = F.cross_entropy(
-                batch_neighbor_logits, neighbor_actions_reshaped
-            )
-
-            # Calculate temporal KL divergence (FURTHER-style)
-            kl_loss = self._calculate_temporal_kl_divergence(means, logvars)
+        # Calculate temporal KL divergence with numerical stability
+        kl_loss = self._calculate_temporal_kl_divergence(new_means, new_logvars)
 
         # Total loss
         inference_loss = recon_loss + kl_loss
@@ -660,16 +594,9 @@ class POLARISAgent:
         self.inference_optimizer.zero_grad()
         inference_loss.backward()
 
-        if self.use_gnn:
-            torch.nn.utils.clip_grad_norm_(
-                self.inference_module.parameters(), max_norm=1.0
-            )
-        else:
-            torch.nn.utils.clip_grad_norm_(
-                list(self.encoder.parameters()) + list(self.decoder.parameters()),
-                max_norm=1.0,
-            )
-
+        torch.nn.utils.clip_grad_norm_(
+            self.inference_module.parameters(), max_norm=1.0
+        )
         self.inference_optimizer.step()
 
         return inference_loss.item()
@@ -1017,15 +944,11 @@ class POLARISAgent:
             "target_q_network1": self.target_q_network1.state_dict(),
             "target_q_network2": self.target_q_network2.state_dict(),
             "gain_parameter": self.gain_parameter,
-            "use_gnn": self.use_gnn,
+            "use_si": self.use_si,
         }
 
-        # Save the appropriate inference module
-        if self.use_gnn:
-            checkpoint["inference_module"] = self.inference_module.state_dict()
-        else:
-            checkpoint["encoder"] = self.encoder.state_dict()
-            checkpoint["decoder"] = self.decoder.state_dict()
+        # Save the inference module
+        checkpoint["inference_module"] = self.inference_module.state_dict()
 
         torch.save(checkpoint, path)
 
@@ -1055,37 +978,26 @@ class POLARISAgent:
                 f"(e.g., GRU vs Transformer). Please ensure model architectures match."
             )
 
-        # Check for architecture mismatch between GNN and encoder-decoder
-        use_gnn_in_checkpoint = checkpoint.get("use_gnn", False)
-        if use_gnn_in_checkpoint != self.use_gnn:
+        # Check for architecture mismatch between SI and non-SI
+        use_si_in_checkpoint = checkpoint.get("use_si", False)
+        if use_si_in_checkpoint != self.use_si:
             raise ArchitectureMismatchError(
-                f"Architecture mismatch detected. Saved model uses {'GNN' if use_gnn_in_checkpoint else 'encoder-decoder'} "
-                f"but current agent uses {'GNN' if self.use_gnn else 'encoder-decoder'}. "
-                f"Please initialize the agent with use_gnn={use_gnn_in_checkpoint} to match the saved model."
+                f"Architecture mismatch detected. Saved model uses {'SI' if use_si_in_checkpoint else 'no SI'} "
+                f"but current agent uses {'SI' if self.use_si else 'no SI'}. "
+                f"Please initialize the agent with use_si={use_si_in_checkpoint} to match the saved model."
             )
 
         # Load core components that should be compatible
         try:
-            if self.use_gnn:
-                if "inference_module" not in checkpoint:
-                    raise ModelComponentError(
-                        "Saved model doesn't contain GNN inference module. "
-                        "Cannot load inference module state."
-                    )
-                self.inference_module.load_state_dict(checkpoint["inference_module"])
-            else:
-                if "encoder" not in checkpoint or "decoder" not in checkpoint:
-                    raise ModelComponentError(
-                        "Saved model doesn't contain encoder/decoder components. "
-                        "Cannot load inference module state."
-                    )
-                self.encoder.load_state_dict(checkpoint["encoder"])
-                self.decoder.load_state_dict(checkpoint["decoder"])
+            self.inference_module.load_state_dict(checkpoint["inference_module"])
+        except RuntimeError as e:
+            raise ModelComponentError(f"Could not load inference module state: {e}")
 
-            # Always try to load policy network
+        # Always try to load policy network
+        try:
             self.policy.load_state_dict(checkpoint["policy"])
         except RuntimeError as e:
-            raise ModelComponentError(f"Could not load core model components: {e}")
+            raise ModelComponentError(f"Could not load policy network: {e}")
 
         # Handle Q-networks
         try:

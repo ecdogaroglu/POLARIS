@@ -7,7 +7,7 @@
 *A multi-agent reinforcement learning framework for strategic social learning*
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-1.8+-red.svg)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
@@ -35,7 +35,7 @@ POLARIS introduces **Partially Observable Active Markov Games (POAMGs)**, extend
 
 - **Theoretical Foundation**: Based on Partially Observable Active Markov Games (POAMGs)
 - **Strategic Learning**: Agents influence others' learning processes under partial observability
-- **Advanced Architectures**: Graph Neural Networks, Transformers, and Temporal Attention
+- **Advanced Architectures**: Graph Neural Networks with Temporal Attention and Transformers 
 - **Continual Learning**: Synaptic Intelligence prevents catastrophic forgetting
 - **Two Environments**: Brandl social learning and Keller-Rady strategic experimentation
 
@@ -53,52 +53,69 @@ pip install polaris-marl[all]
 
 ### Command Line Usage
 
-#### **General Purpose**
+**General Purpose Simulation**
 ```bash
-# Social learning experiment
-polaris-simulate --environment-type brandl --num-agents 5 --num-states 3
+# Social learning experiment (Brandl framework)
+polaris-simulate --environment-type brandl --num-agents 5 --num-states 3 --signal-accuracy 0.8
 
-# Strategic experimentation
+# Strategic experimentation (Keller-Rady framework)
 polaris-simulate --environment-type strategic_experimentation --num-agents 4 --continuous-actions
 ```
 
-#### **Research Scripts**
+**Research Scripts**
 ```bash
-# Social learning with enhanced analysis
-polaris-brandl --agents 8 --signal-accuracy 0.75 --plot-states --latex-style
+# Brandl social learning sweep - analyzes individual agent performance across network topologies
+python experiments/brandl_sweep.py --agent-counts 1 2 4 6 8 --network-types complete ring star random --episodes 5
 
-# Strategic experimentation with allocations
-polaris-strategic --agents 2 --horizon 10000 --plot-allocations --use-gnn
-
-# Individual agent performance analysis (Brandl social learning)
-python experiments/brandl_sweep.py --agent-counts 1 2 4 6 8 10 --network-types complete ring star random --episodes 5
-
-# Multi-agent comparison analysis (Keller-Rady strategic experimentation)
+# Keller-Rady strategic experimentation sweep - compares aggregate performance across agent counts
 python experiments/keller_rady_sweep.py --agent-counts 2 3 4 5 6 7 8 --episodes 3
 
-# List all available scripts and examples
+# Individual experiments
+python experiments/brandl_experiment.py --agents 8 --signal-accuracy 0.75 --plot-states
+python experiments/keller_rady_experiment.py --agents 2 --horizon 10000 --plot-allocations
+
+# List all available scripts
 python -m polaris.experiments
 ```
 
 ### Python API
 
 ```python
+from polaris.config.experiment_config import (
+    ExperimentConfig, AgentConfig, TrainingConfig, BrandlConfig
+)
 from polaris.environments.social_learning import SocialLearningEnvironment
-from polaris.training.trainer import Trainer
-from polaris.config.args import parse_args
+from polaris.training.simulation import run_experiment
+
+# Create configuration
+config = ExperimentConfig(
+    agent=AgentConfig(
+        learning_rate=1e-3,
+        use_si=True,  # Enable Synaptic Intelligence
+        num_gnn_layers=3  # Graph Neural Networks (default architecture)
+    ),
+    training=TrainingConfig(
+        num_episodes=10,
+        horizon=1000
+    ),
+    environment=BrandlConfig(
+        num_agents=5,
+        num_states=3,
+        signal_accuracy=0.8,
+        network_type='complete'
+    )
+)
 
 # Create environment
 env = SocialLearningEnvironment(
-    num_agents=5,
-    num_states=3,
-    signal_accuracy=0.8,
-    network_type='complete'
+    num_agents=config.environment.num_agents,
+    num_states=config.environment.num_states,
+    signal_accuracy=config.environment.signal_accuracy,
+    network_type=config.environment.network_type
 )
 
-# Configure and train
-args = parse_args()
-trainer = Trainer(env, args)
-results = trainer.run_agents(training=True)
+# Run experiment
+episodic_metrics, processed_metrics = run_experiment(env, config)
 ```
 
 ## Research Features
@@ -106,7 +123,7 @@ results = trainer.run_agents(training=True)
 ### Environments
 
 **Brandl Social Learning**: Agents learn about a hidden state through private signals and social observation
-- Discrete actions, configurable networks, theoretical bounds analysis
+- Discrete actions, configurable network topologies, theoretical bounds analysis
 
 **Strategic Experimentation (Keller-Rady)**: Agents allocate resources between safe and risky options
 - Continuous actions, Lévy processes, exploration-exploitation trade-offs
@@ -121,29 +138,28 @@ results = trainer.run_agents(training=True)
 
 ```bash
 # Graph Neural Networks with temporal attention
-polaris-simulate --use-gnn --gnn-layers 3 --attn-heads 8
+polaris-simulate --gnn-layers 3 --attn-heads 8 --temporal-window 10
 
 # Continual learning with Synaptic Intelligence
 polaris-simulate --use-si --si-importance 150.0
 
-# Enhanced visualizations
-polaris-brandl --plot-states --latex-style
-polaris-strategic --plot-allocations --save-model
+# Custom network topologies
+polaris-simulate --network-type ring --network-density 0.3
 ```
 
 ### Sweep Analysis Scripts
 
-POLARIS provides two specialized sweep scripts for comprehensive analysis across different experimental conditions:
+POLARIS provides specialized sweep scripts for comprehensive research analysis:
 
 #### **Brandl Social Learning Sweep**
 
-The `brandl_sweep.py` script analyzes individual agent learning performance across network topologies:
+Analyzes individual agent learning performance across network topologies:
 
 ```bash
 # Basic usage - analyze learning across network sizes and types
 python experiments/brandl_sweep.py
 
-# Custom configuration with multiple episodes for statistical analysis
+# Custom configuration with statistical analysis
 python experiments/brandl_sweep.py \
     --agent-counts 1 2 4 6 8 10 \
     --network-types complete ring star random \
@@ -153,20 +169,19 @@ python experiments/brandl_sweep.py \
 ```
 
 **Key Features:**
-- **Learning Rate Calculation**: Computes individual learning rates (r) using log-linear regression
+- **Learning Rate Calculation**: Computes individual learning rates using log-linear regression
 - **Statistical Analysis**: Multiple episodes with 95% confidence intervals
-- **Extreme Agent Focus**: Shows only fastest (green) and slowest (red) learners to avoid plot overcrowding
-- **Agent Resetting**: Proper agent state reset between episodes to prevent information leakage
+- **Extreme Agent Focus**: Shows fastest (green) and slowest (red) learners to avoid overcrowding
 - **Network Topology Comparison**: Analyzes performance across complete, ring, star, and random networks
 
 **Generated Outputs:**
-- `fastest_slowest_network_sizes_evolution.png` - Fastest/slowest trajectories with CIs across network sizes
-- `fastest_slowest_network_types_evolution.png` - Fastest/slowest trajectories with CIs across network types
-- `agent_performance_results.json` - Complete numerical results with learning rates and confidence intervals
+- `fastest_slowest_network_sizes_evolution.png` - Performance trajectories across network sizes
+- `fastest_slowest_network_types_evolution.png` - Performance trajectories across network types
+- `agent_performance_results.json` - Complete numerical results with learning rates
 
 #### **Keller-Rady Strategic Experimentation Sweep**
 
-The `keller_rady_sweep.py` script compares aggregate performance across different agent counts:
+Compares aggregate performance across different agent counts:
 
 ```bash
 # Basic usage - compare performance across agent counts
@@ -181,52 +196,83 @@ python experiments/keller_rady_sweep.py \
 
 **Key Features:**
 - **Multi-Agent Comparison**: Analyzes how performance scales with agent count
-- **Statistical Analysis**: Provides confidence intervals across multiple episodes
-- **Cumulative Allocation Tracking**: Shows resource allocation patterns over time
-- **Convergence Analysis**: Studies how quickly agents reach optimal strategies
+- **Statistical Analysis**: Confidence intervals across multiple episodes
+- **Cumulative Allocation Tracking**: Resource allocation patterns over time
+- **Convergence Analysis**: Studies optimal strategy convergence
 
 **Generated Outputs:**
 - `average_cumulative_allocation_per_agent_over_time.png` - Allocation trends with confidence intervals
-- Detailed performance metrics for each agent count configuration
 
 ## Examples
 
 ### Research Workflow
 ```bash
-# 1. Train social learning agents
-polaris-brandl --agents 8 --signal-accuracy 0.75 --use-gnn --plot-states
-
-# 2. Strategic experimentation
-polaris-strategic --agents 2 --horizon 10000 --plot-allocations --latex-style
-
-# 3. Individual agent analysis (Brandl)
+# 1. Individual agent analysis (Brandl social learning)
 python experiments/brandl_sweep.py --agent-counts 2 4 6 8 --network-types complete ring star --episodes 5
 
-# 4. Multi-agent comparison (Keller-Rady)
+# 2. Multi-agent comparison (Keller-Rady strategic experimentation)
 python experiments/keller_rady_sweep.py --agent-counts 2 3 4 5 6 7 8 --episodes 3
+
+# 3. Single experiments with visualization
+python experiments/brandl_experiment.py --agents 8 --signal-accuracy 0.75 --plot-states --latex-style
+python experiments/keller_rady_experiment.py --agents 2 --horizon 10000 --plot-allocations
 ```
 
 ### Advanced Configuration
 ```python
-from polaris.config.experiment_config import ExperimentConfig, AgentConfig, TrainingConfig
+from polaris.config.experiment_config import ExperimentConfig, AgentConfig, TrainingConfig, StrategicExpConfig
 
-# Custom configuration
+# Strategic experimentation with continual learning
 config = ExperimentConfig(
-    agent=AgentConfig(use_gnn=True, use_si=True),
-    training=TrainingConfig(num_episodes=10, horizon=1000)
+    agent=AgentConfig(
+        use_si=True,
+        si_importance=100.0,
+        num_gnn_layers=3,
+        temporal_window_size=10
+    ),
+    training=TrainingConfig(
+        num_episodes=10, 
+        horizon=1000
+    ),
+    environment=StrategicExpConfig(
+        num_agents=4,
+        continuous_actions=True,
+        safe_payoff=1.0,
+        drift_rates=[-0.5, 0.5]
+    )
 )
 ```
 
-## Console Scripts Reference
+## Available Scripts
 
-| Command | Purpose | Key Features |
-|---------|---------|-------------|
-| `polaris-simulate` | General experimentation | Flexible, all environments |
-| `polaris-brandl` | Social learning research | Theoretical bounds, belief analysis |
-| `polaris-strategic` | Strategic experimentation | Allocation plots, KL divergence |
-| `experiments/brandl_sweep.py` | Multi-agent comparison (Brandl) | Learning rates, trajectory comparison, network topology effects, confidence intervals |
-| `experiments/keller_rady_sweep.py` | Multi-agent comparison (Keller-Rady) | Cumulative allocations |
-| `polaris-experiment` | Quick testing | Simplified interface |
+| Script | Purpose | Key Features |
+|--------|---------|-------------|
+| `polaris-simulate` | General experimentation | Flexible interface for both environments |
+| `experiments/brandl_experiment.py` | Single Brandl experiment | Belief analysis, state plots |
+| `experiments/keller_rady_experiment.py` | Single strategic experiment | Allocation plots, convergence analysis |
+| `experiments/brandl_sweep.py` | Multi-agent Brandl analysis | Learning rates, network topology comparison |
+| `experiments/keller_rady_sweep.py` | Multi-agent strategic analysis | Cumulative allocations, scaling analysis |
+
+## Project Structure
+
+```
+polaris/
+├── agents/          # Agent implementations with memory systems
+├── algorithms/      # Regularization techniques (SI, EWC)
+├── config/          # Configuration system
+├── environments/    # Brandl and Keller-Rady environments
+├── networks/        # Graph neural network architectures
+├── training/        # Training loop and simulation runner
+├── utils/           # Utilities for device management, etc.
+└── visualization/   # Plotting and visualization tools
+
+experiments/
+├── brandl_experiment.py           # Single Brandl experiment
+├── keller_rady_experiment.py      # Single strategic experimentation
+├── brandl_sweep.py               # Multi-agent Brandl analysis
+├── keller_rady_sweep.py          # Multi-agent strategic analysis
+└── brandl_policy_inversion_analysis.py  # Policy analysis tools
+```
 
 ## Development
 
