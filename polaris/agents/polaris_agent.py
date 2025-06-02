@@ -5,10 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from polaris.algorithms.regularization.si import (
-    SILoss,
-    calculate_path_integral_from_replay_buffer,
-)
+from polaris.algorithms.regularization.si import SILoss
+
 
 from ..agents.memory.replay_buffer import ReplayBuffer
 from ..networks.temporal_gnn import TemporalGNN
@@ -16,7 +14,6 @@ from ..networks.policy import ContinuousPolicyNetwork, PolicyNetwork
 from ..networks.qnetwork import QNetwork
 from ..networks.transformer import TransformerBeliefProcessor
 from ..utils.device import get_best_device
-from ..utils.encoding import encode_observation
 
 
 class ArchitectureMismatchError(ValueError):
@@ -502,7 +499,7 @@ class POLARISAgent:
 
             # Update inference module
             inference_loss = self._update_inference(
-                signals, neighbor_actions, next_signals, next_latents, means, logvars
+                signals, neighbor_actions, rewards, next_signals, next_latents, means, logvars
             )
             total_inference_loss += inference_loss
 
@@ -547,18 +544,17 @@ class POLARISAgent:
         }
 
     def _update_inference(
-        self, signals, neighbor_actions, next_signals, next_latents, means, logvars
+        self, signals, neighbor_actions, rewards, next_signals, next_latents, means, logvars
     ):
         """Update inference module with FURTHER-style temporal KL."""
 
-        # We need dummy rewards for the GNN forward pass
+        # Extract batch size
         batch_size = signals.size(0)
-        dummy_rewards = torch.zeros(batch_size, 1, device=self.device)
 
         # Forward pass through GNN to get new distribution parameters
         # Note: we detach next_latents to avoid gradients flowing back through the target network
         new_means, new_logvars, _ = self.inference_module(
-            signals, neighbor_actions, dummy_rewards, next_signals, next_latents.detach()
+            signals, neighbor_actions, rewards, next_signals, next_latents.detach()
         )
 
         # Generate action predictions using the current batch
@@ -816,6 +812,12 @@ class POLARISAgent:
 
             # Add entropy term for exploration
             policy_loss = policy_loss - self.entropy_weight * entropy
+
+        # Add SI loss if enabled
+        si_loss = 0.0
+        if self.use_si and self.path_integrals_calculated:
+            si_loss = self.policy_si.calculate_loss()
+            policy_loss += si_loss
 
         # Update policy
         self.policy_optimizer.zero_grad()
