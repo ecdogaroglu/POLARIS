@@ -58,11 +58,6 @@ class SocialLearningEnvironment(BaseEnvironment):
         self.mistake_history = []
         self.incorrect_prob_history = []
 
-
-class MissingActionProbabilitiesError(ValueError):
-    """Raised when action probabilities are missing for an agent."""
-    pass
-
     def _generate_signal(self, agent_id: int) -> int:
         """
         Generate a private signal for an agent based on the true state.
@@ -172,7 +167,7 @@ class MissingActionProbabilitiesError(ValueError):
         # For each agent, get the probability they assigned to incorrect states
         incorrect_probs = []
         for agent_id in range(self.num_agents):
-            if agent_id in action_probs:
+            if action_probs and agent_id in action_probs:
                 # Sum probabilities assigned to all incorrect states
                 incorrect_prob = 1.0 - action_probs[agent_id][self.true_state]
                 incorrect_probs.append(incorrect_prob)
@@ -263,3 +258,8 @@ class MissingActionProbabilitiesError(ValueError):
             p_correct = self.signal_accuracy
             p_error = (1 - p_correct) / (self.num_states - 1)
             return -p_correct * np.log(p_error / p_correct)
+
+
+class MissingActionProbabilitiesError(ValueError):
+    """Raised when action probabilities are missing for an agent."""
+    pass
