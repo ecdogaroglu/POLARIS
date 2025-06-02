@@ -265,14 +265,29 @@ class ReplayBuffer:
                 self.device
             )  # Ensure consistent shape
 
-            # Convert actions to tensor if they're not already
+            # Convert actions to tensor - handle both continuous and discrete actions
             actions_tensor = []
+            is_continuous_actions = False
+            
+            # Check if we have continuous actions (floats) or discrete actions (ints)
             for a in actions:
                 if isinstance(a, torch.Tensor):
-                    actions_tensor.append(a.item())
+                    value = a.item()
+                    actions_tensor.append(value)
+                    # Check if the value is a float (continuous action)
+                    if isinstance(value, float) or (value != int(value)):
+                        is_continuous_actions = True
                 else:
-                    actions_tensor.append(int(a))
-            actions = torch.LongTensor(actions_tensor).to(self.device)
+                    actions_tensor.append(a)
+                    # Check if it's a float value
+                    if isinstance(a, float) or (isinstance(a, (int, float)) and a != int(a)):
+                        is_continuous_actions = True
+            
+            # Create appropriate tensor type based on action type
+            if is_continuous_actions:
+                actions = torch.FloatTensor(actions_tensor).to(self.device)
+            else:
+                actions = torch.LongTensor([int(a) for a in actions_tensor]).to(self.device)
 
             # Convert rewards to tensor
             rewards_tensor = []

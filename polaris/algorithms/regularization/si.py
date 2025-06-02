@@ -111,10 +111,15 @@ class SILoss:
             self.param_path_integrals[name].zero_()
 
         # Update previous parameters to current values for the new task
+        # Also store task start parameters for SI loss calculation
         for name, param in self.model.named_parameters():
             if param.requires_grad and name not in self.excluded_layers:
                 self.previous_params[name] = param.data.clone()
                 self.prev_params_per_step[name] = param.data.clone()
+                # Store task start parameters for SI loss calculation
+                if not hasattr(self, 'task_start_params'):
+                    self.task_start_params = {}
+                self.task_start_params[name] = param.data.clone()
 
     def update_trajectory(self, optimizer_step: bool = True):
         """
@@ -192,21 +197,19 @@ class SILoss:
 
             if param.requires_grad and name in self.prev_params_per_step:
                 # Calculate parameter update (new - old)
+                # Use the parameters from BEFORE the optimizer step
                 delta = param.data - self.prev_params_per_step[name]
 
                 # Check if we have a gradient from the backward pass
-                if param.grad is not None:
-                    # Use the original (unmasked) gradient for path integral calculation
-                    # This ensures the importance calculation is accurate
-                    original_grad = self.original_gradients.get(
-                        name, param.grad.detach()
-                    )
+                # We use the stored original gradient even if param.grad is None
+                if name in self.original_gradients:
+                    original_grad = self.original_gradients[name]
 
                     # Accumulate path integral: -gradient * parameter change
                     # Note the negative sign, as the gradient points in the direction of increasing loss
                     self.param_path_integrals[name] -= original_grad * delta
 
-                # Update previous step parameters to current values
+                # Update previous step parameters to current values for next iteration
                 self.prev_params_per_step[name] = param.data.clone()
 
     def register_task(self):
@@ -240,10 +243,6 @@ class SILoss:
 
                 # Store task-specific importance
                 task_specific_importances[name] = new_importance.detach().clone()
-
-                # Normalize importance scores to encourage diversity
-                # We apply softmax normalization across parameters to get a more sparse distribution
-                # This helps different tasks to use different parameters
 
                 # Accumulate importance scores
                 self.importance_scores[name] += new_importance
@@ -335,26 +334,27 @@ class SILoss:
             The SI loss tensor
         """
         loss = torch.tensor(0.0, device=self.device)
-
+        
         # Calculate SI loss
         for name, param in self.model.named_parameters():
             # Skip excluded layers
             if name in self.excluded_layers:
                 continue
-
+            
             if (
                 param.requires_grad
                 and name in self.importance_scores
-                and name in self.previous_params
+                and hasattr(self, 'task_start_params')
+                and name in self.task_start_params
             ):
                 # Get the importance scores
                 importance = self.importance_scores[name]
-
-                # Get the old parameter values
-                old_param = self.previous_params[name]
+                
+                # Get the parameter values from when the current task started
+                task_start_param = self.task_start_params[name]
 
                 # Calculate squared difference weighted by importance scores
-                param_diff = (param - old_param).pow(2)
+                param_diff = (param - task_start_param).pow(2)
                 weighted_diff = (importance * param_diff).sum()
 
                 # Add to total loss
@@ -362,7 +362,7 @@ class SILoss:
 
         # Apply importance factor
         loss *= self.importance / 2.0
-
+        
         return loss
 
     def _enhance_task_specialization(self):

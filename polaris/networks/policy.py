@@ -128,14 +128,11 @@ class ContinuousPolicyNetwork(nn.Module):
 
         # Forward pass
         x = F.relu(self.fc1(combined))
-        x = F.relu(self.fc2(x))
+        logits = F.relu(self.fc2(x))
 
         # Extract allocation and scale to action range
-        allocation = torch.sigmoid(self.allocation_head(x))  # Sigmoid for [0,1] range
-        scaled_allocation = self.min_action + (self.max_action - self.min_action) * allocation
+        allocation = torch.sigmoid(self.allocation_head(logits))  # Sigmoid for [0,1] range
+        allocation = self.min_action + (self.max_action - self.min_action) * allocation
 
-        return scaled_allocation
+        return logits, allocation
 
-    def get_action(self, belief, latent):
-        """Get action from the policy (same as forward for deterministic policy)."""
-        return self.forward(belief, latent) 

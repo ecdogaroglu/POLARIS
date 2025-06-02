@@ -624,7 +624,7 @@ class Trainer:
                     # Get policy parameters directly
                     context_manager = torch.no_grad() if not training else torch.enable_grad()
                     with context_manager:
-                        allocation = agent.policy(
+                        action_logits, allocation = agent.policy(
                             agent.current_belief, agent.current_latent
                         )
 
@@ -855,13 +855,20 @@ class Trainer:
                 )
 
                 # Store transition
+                # For continuous actions, store the actual allocation value instead of the action index
+                action_to_store = actions[agent_id]
+                if continuous_actions and hasattr(agent, "continuous_actions") and agent.continuous_actions:
+                    # Get the actual allocation from the policy
+                    _, allocation = agent.policy(agent.current_belief, agent.current_latent)
+                    action_to_store = allocation.item()
+                
                 store_transition_in_buffer(
                     self.replay_buffers[agent_id],
                     signal_encoded,
                     actions_encoded,
                     belief,
                     latent,
-                    actions[agent_id],
+                    action_to_store,
                     reward_value,
                     next_signal_encoded,
                     next_belief,
@@ -877,8 +884,17 @@ class Trainer:
                 ):
                     # Sample a batch from the replay buffer
                     batch = self.replay_buffers[agent_id].sample(self.args.batch_size)
-                    # Update network parameters
-                    agent.update(batch)
+                    # Update network parameters and capture training losses
+                    losses = agent.update(batch)
+                    
+                    # Track training losses for catastrophic forgetting diagnostics
+                    if training and hasattr(self.metrics_tracker, 'update_training_losses'):
+                        self.metrics_tracker.update_training_losses(agent_id, losses)
+                    
+                    # Also capture action logits for CF diagnostics during training
+                    if training and hasattr(agent, 'action_logits'):
+                        if agent.action_logits is not None and hasattr(self.metrics_tracker, 'update_action_logits'):
+                            self.metrics_tracker.update_action_logits(agent_id, agent.action_logits)
 
     def _initialize_agents(self, obs_dim):
         """Initialize POLARIS agents."""

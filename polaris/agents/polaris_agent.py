@@ -11,7 +11,7 @@ from polaris.algorithms.regularization.si import SILoss
 from ..agents.memory.replay_buffer import ReplayBuffer
 from ..networks.temporal_gnn import TemporalGNN
 from ..networks.policy import ContinuousPolicyNetwork, PolicyNetwork
-from ..networks.qnetwork import QNetwork
+from ..networks.qnetwork import QNetwork, ContinuousQNetwork
 from ..networks.transformer import TransformerBeliefProcessor
 from ..utils.device import get_best_device
 
@@ -142,42 +142,81 @@ class POLARISAgent:
                 device=device,
             ).to(device)
 
-        self.q_network1 = QNetwork(
-            belief_dim=belief_dim,
-            latent_dim=latent_dim,
-            action_dim=action_dim,
-            hidden_dim=hidden_dim,
-            num_agents=num_agents,
-            device=device,
-        ).to(device)
+        # Use appropriate Q-networks based on action space
+        if continuous_actions:
+            self.q_network1 = ContinuousQNetwork(
+                belief_dim=belief_dim,
+                latent_dim=latent_dim,
+                action_dim=1,  # For continuous actions, action_dim=1 for allocation
+                hidden_dim=hidden_dim,
+                num_agents=num_agents,
+                device=device,
+            ).to(device)
 
-        self.q_network2 = QNetwork(
-            belief_dim=belief_dim,
-            latent_dim=latent_dim,
-            action_dim=action_dim,
-            hidden_dim=hidden_dim,
-            num_agents=num_agents,
-            device=device,
-        ).to(device)
+            self.q_network2 = ContinuousQNetwork(
+                belief_dim=belief_dim,
+                latent_dim=latent_dim,
+                action_dim=1,
+                hidden_dim=hidden_dim,
+                num_agents=num_agents,
+                device=device,
+            ).to(device)
 
-        # Create target networks
-        self.target_q_network1 = QNetwork(
-            belief_dim=belief_dim,
-            latent_dim=latent_dim,
-            action_dim=action_dim,
-            hidden_dim=hidden_dim,
-            num_agents=num_agents,
-            device=device,
-        ).to(device)
+            # Create target networks
+            self.target_q_network1 = ContinuousQNetwork(
+                belief_dim=belief_dim,
+                latent_dim=latent_dim,
+                action_dim=1,
+                hidden_dim=hidden_dim,
+                num_agents=num_agents,
+                device=device,
+            ).to(device)
 
-        self.target_q_network2 = QNetwork(
-            belief_dim=belief_dim,
-            latent_dim=latent_dim,
-            action_dim=action_dim,
-            hidden_dim=hidden_dim,
-            num_agents=num_agents,
-            device=device,
-        ).to(device)
+            self.target_q_network2 = ContinuousQNetwork(
+                belief_dim=belief_dim,
+                latent_dim=latent_dim,
+                action_dim=1,
+                hidden_dim=hidden_dim,
+                num_agents=num_agents,
+                device=device,
+            ).to(device)
+        else:
+            self.q_network1 = QNetwork(
+                belief_dim=belief_dim,
+                latent_dim=latent_dim,
+                action_dim=action_dim,
+                hidden_dim=hidden_dim,
+                num_agents=num_agents,
+                device=device,
+            ).to(device)
+
+            self.q_network2 = QNetwork(
+                belief_dim=belief_dim,
+                latent_dim=latent_dim,
+                action_dim=action_dim,
+                hidden_dim=hidden_dim,
+                num_agents=num_agents,
+                device=device,
+            ).to(device)
+
+            # Create target networks
+            self.target_q_network1 = QNetwork(
+                belief_dim=belief_dim,
+                latent_dim=latent_dim,
+                action_dim=action_dim,
+                hidden_dim=hidden_dim,
+                num_agents=num_agents,
+                device=device,
+            ).to(device)
+
+            self.target_q_network2 = QNetwork(
+                belief_dim=belief_dim,
+                latent_dim=latent_dim,
+                action_dim=action_dim,
+                hidden_dim=hidden_dim,
+                num_agents=num_agents,
+                device=device,
+            ).to(device)
 
         # Copy parameters to target networks
         self.target_q_network1.load_state_dict(self.q_network1.state_dict())
@@ -426,9 +465,10 @@ class POLARISAgent:
         """Select action based on current belief and latent."""
         if self.continuous_actions:
             # For continuous actions (strategic experimentation)
-            action = self.policy.get_action(
-                self.current_belief, self.current_latent
-            )
+
+            self.action_logits, action = self.policy(
+                    self.current_belief, self.current_latent
+                )
 
             # Convert to numpy and scalar (for 1D action space)
             action_value = action.squeeze().detach().cpu().numpy()
@@ -474,6 +514,10 @@ class POLARISAgent:
         total_critic_loss = 0
         total_policy_loss = 0
         total_transformer_loss = 0
+        
+        # Initialize separate SI loss tracking
+        total_policy_si_loss = 0
+        total_belief_si_loss = 0
 
         # Check if we have a single batch or a list of sequences
         if isinstance(batch_sequences, tuple):
@@ -507,14 +551,17 @@ class POLARISAgent:
             policy_result = self._update_policy(
                 beliefs, latents, actions, neighbor_actions
             )
-            policy_loss, _ = policy_result
+            policy_loss, advantage, policy_si_loss = policy_result
             total_policy_loss += policy_loss
+            total_policy_si_loss += policy_si_loss
 
             # Update Transformer with advantage
-            transformer_loss = self._update_transformer(
+            transformer_result = self._update_transformer(
                 signals, neighbor_actions, beliefs, next_signals
             )
+            transformer_loss, belief_si_loss = transformer_result
             total_transformer_loss += transformer_loss
+            total_belief_si_loss += belief_si_loss
 
             # Update Q-networks
             critic_loss = self._update_critics(
@@ -541,6 +588,8 @@ class POLARISAgent:
             "critic_loss": total_critic_loss / sequence_length,
             "policy_loss": total_policy_loss / sequence_length,
             "transformer_loss": total_transformer_loss / sequence_length,
+            "policy_si_loss": total_policy_si_loss / sequence_length,
+            "belief_si_loss": total_belief_si_loss / sequence_length,
         }
 
     def _update_inference(
@@ -642,50 +691,84 @@ class POLARISAgent:
                 else:
                     continuous_actions = actions.float()
             else:
+                # Handle scalar actions
                 continuous_actions = torch.tensor(
                     [[float(actions)]], device=self.device
                 )
 
-            # Get current Q-values
-            current_q1 = self.q_network1(beliefs, latents, neighbor_actions)
-            current_q2 = self.q_network2(beliefs, latents, neighbor_actions)
+            # Get current Q-values using the continuous Q-networks
+            q1 = self.q_network1(beliefs, latents, continuous_actions, neighbor_actions)
+            q2 = self.q_network2(beliefs, latents, continuous_actions, neighbor_actions)
 
-            # For continuous case, we use the mean Q-value as our estimate
-            q1 = current_q1.mean(dim=1, keepdim=True)
-            q2 = current_q2.mean(dim=1, keepdim=True)
-
-            # Compute next action distribution
+            # Compute next action and target Q-values
             with torch.no_grad():
-                # Get allocation from the policy
-                next_allocation = self.policy(next_beliefs, next_latents)
+                # Get next allocation from the policy
+                _, next_allocation = self.policy(next_beliefs, next_latents)
+
+                # Convert next neighbor actions to continuous format
+                next_batch_size = next_beliefs.size(0)
+                
+                # Handle different neighbor action formats
+                if next_neighbor_actions is None:
+                    next_neighbor_continuous = torch.zeros(next_batch_size, self.num_agents, device=self.device)
+                elif next_neighbor_actions.dim() == 1:
+                    # 1D tensor - expand to correct batch size
+                    if next_neighbor_actions.size(0) == next_batch_size:
+                        # Each element is for one batch item
+                        next_neighbor_continuous = next_neighbor_actions.float().unsqueeze(1).repeat(1, self.num_agents)
+                    elif next_neighbor_actions.size(0) == self.num_agents:
+                        # One value per agent, broadcast to batch
+                        next_neighbor_continuous = next_neighbor_actions.float().unsqueeze(0).repeat(next_batch_size, 1)
+                    else:
+                        next_neighbor_continuous = torch.zeros(next_batch_size, self.num_agents, device=self.device)
+                elif next_neighbor_actions.dim() == 2:
+                    if next_neighbor_actions.size(0) != next_batch_size:
+                        # Wrong batch size - create zeros
+                        next_neighbor_continuous = torch.zeros(next_batch_size, self.num_agents, device=self.device)
+                    elif next_neighbor_actions.size(1) == self.num_states:
+                        # One-hot encoded discrete actions - convert to continuous allocations
+                        next_neighbor_continuous = torch.argmax(next_neighbor_actions, dim=1).float().unsqueeze(1) / max(1, next_neighbor_actions.size(1) - 1)
+                        # Replicate to match num_agents if needed
+                        if next_neighbor_continuous.size(1) < self.num_agents:
+                            next_neighbor_continuous = next_neighbor_continuous.repeat(1, self.num_agents)
+                    elif next_neighbor_actions.size(1) == self.num_agents:
+                        # Already correct shape
+                        next_neighbor_continuous = next_neighbor_actions.float()
+                    else:
+                        # Unknown format - create zeros
+                        next_neighbor_continuous = torch.zeros(next_batch_size, self.num_agents, device=self.device)
+                else:
+                    # Higher dimensional or unknown format
+                    next_neighbor_continuous = torch.zeros(next_batch_size, self.num_agents, device=self.device)
+                
+                # Final safety check - ensure exactly [batch_size, num_agents] shape
+                if next_neighbor_continuous.size(0) != next_batch_size or next_neighbor_continuous.size(1) != self.num_agents:
+                    next_neighbor_continuous = torch.zeros(next_batch_size, self.num_agents, device=self.device)
 
                 # Compute Q-values with target networks
                 next_q1 = self.target_q_network1(
-                    next_beliefs, next_latents, next_neighbor_actions
+                    next_beliefs, next_latents, next_allocation, next_neighbor_continuous
                 )
                 next_q2 = self.target_q_network2(
-                    next_beliefs, next_latents, next_neighbor_actions
+                    next_beliefs, next_latents, next_allocation, next_neighbor_continuous
                 )
 
-                # Take minimum Q-value
+                # Take minimum Q-value (double Q-learning)
                 next_q = torch.min(next_q1, next_q2)
-
-                # For continuous case, use the mean Q-value
-                expected_q = next_q.mean(dim=1, keepdim=True)
 
                 # Compute target (no entropy term since deterministic policy)
                 if self.discount_factor > 0:  # Discounted return
-                    target_q = rewards + self.discount_factor * expected_q
+                    target_q = rewards + self.discount_factor * next_q
                 else:  # Average reward
-                    target_q = rewards - self.gain_parameter + expected_q
+                    target_q = rewards - self.gain_parameter + next_q
         else:
             # Original discrete action implementation
             # Get current Q-values
             q1 = self.q_network1(beliefs, latents, neighbor_actions).gather(
-                1, actions.unsqueeze(1)
+                1, actions.long().unsqueeze(1)
             )
             q2 = self.q_network2(beliefs, latents, neighbor_actions).gather(
-                1, actions.unsqueeze(1)
+                1, actions.long().unsqueeze(1)
             )
 
             # Compute next action probabilities
@@ -747,37 +830,23 @@ class POLARISAgent:
         """Update policy network and calculate advantage for Transformer training.
 
         Returns:
-            Tuple of (policy_loss_value, advantage)
+            Tuple of (policy_loss_value, advantage, si_loss)
         """
         if self.continuous_actions:
-            # For continuous actions, policy now outputs allocation directly
-            allocation = self.policy(beliefs, latents)
+            # Get policy output (allocation)
+            _, allocation = self.policy(beliefs, latents)
 
-            # For continuous case, actions are the allocation values
-            if isinstance(actions, torch.Tensor):
-                if actions.dim() == 1:
-                    # Reshape to [batch_size, 1] for proper handling
-                    continuous_actions = actions.unsqueeze(1).float()
-                else:
-                    continuous_actions = actions.float()
-            else:
-                # Handle scalar actions
-                continuous_actions = torch.tensor(
-                    [[float(actions)]], device=self.device
-                )
+            # Get Q-values for the current policy's action (this needs gradients!)
+            q1_policy = self.q_network1(beliefs, latents, allocation, neighbor_actions)
+            q2_policy = self.q_network2(beliefs, latents, allocation, neighbor_actions)
+            q_policy = torch.min(q1_policy, q2_policy)
 
-            # Calculate MSE loss between predicted and actual allocations
-            policy_loss = F.mse_loss(allocation, continuous_actions)
-
-            # Calculate advantage for Transformer training
-            with torch.no_grad():
-                # Get Q-values for the actions
-                q1 = self.q_network1(beliefs, latents, neighbor_actions)
-                q2 = self.q_network2(beliefs, latents, neighbor_actions)
-                q = torch.min(q1, q2)
-
-                # For continuous actions, we use the taken action's Q-value as advantage
-                advantage = q.mean()
+            # For continuous actions, use deterministic policy gradient approach (similar to DDPG)
+            # Deterministic policy gradient: maximize Q(s, μ(s))
+            # where μ(s) is the deterministic policy output (allocation)
+            policy_loss = -q_policy.mean()
+            # Skip advantage calculation for continuous actions
+            advantage = None
         else:
             # Generate fresh action logits for the batch
             action_logits = self.policy(beliefs, latents)
@@ -834,7 +903,7 @@ class POLARISAgent:
         if self.use_si:
             self.policy_si.update_trajectory_post_step()
 
-        return policy_loss.item(), advantage
+        return policy_loss.item(), advantage, si_loss.item() if isinstance(si_loss, torch.Tensor) else si_loss
 
     def _update_transformer(self, signals, neighbor_actions, beliefs, next_signals):
         """
@@ -892,7 +961,7 @@ class POLARISAgent:
         if self.use_si:
             self.belief_si.update_trajectory_post_step()
 
-        return transformer_loss.item()
+        return transformer_loss.item(), si_loss.item() if isinstance(si_loss, torch.Tensor) else si_loss
 
     def _update_targets(self):
         """Update target networks."""

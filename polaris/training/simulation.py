@@ -57,6 +57,7 @@ def run_experiment(env, config) -> Tuple[Dict, Dict]:
         args.plot_allocations = config.plot_allocations
         args.plot_incentives = getattr(config, "plot_incentives", False)
         args.plot_accuracy = getattr(config, "plot_accuracy", False)
+        args.plot_cf_diagnostics = getattr(config, "plot_cf_diagnostics", False)
         args.latex_style = getattr(config, "latex_style", False)
         args.use_tex = getattr(config, "use_tex", False)
         args.save_model = config.save_model

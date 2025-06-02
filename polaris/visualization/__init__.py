@@ -9,6 +9,7 @@ from .plots.beliefs import BeliefPlotter
 from .plots.incentives import IncentivePlotter
 from .plots.learning_curves import LearningCurvePlotter
 from .plots.accuracy import AccuracyPlotter
+from .plots.catastrophic_forgetting_diagnostics import CatastrophicForgettingDiagnosticPlotter
 
 
 class POLARISPlotter:
@@ -40,6 +41,7 @@ class POLARISPlotter:
         self.allocations = AllocationPlotter(use_latex=use_latex)
         self.incentives = IncentivePlotter(use_latex=use_latex)
         self.accuracy = AccuracyPlotter(use_latex=use_latex)
+        self.cf_diagnostics = CatastrophicForgettingDiagnosticPlotter(use_latex=use_latex)
 
     def generate_all_plots(
         self, metrics, env, args, output_dir, training=True, episodic_metrics=None
@@ -99,6 +101,15 @@ class POLARISPlotter:
             # Use episodic metrics if available for better accuracy calculations
             accuracy_metrics = episodic_metrics if episodic_metrics else metrics
             self.accuracy.plot(accuracy_metrics, env, args, output_dir)
+
+        # Generate catastrophic forgetting diagnostic plots
+        if (
+            training 
+            and episodic_metrics 
+            and getattr(args, "use_si", False)
+            and getattr(args, "plot_cf_diagnostics", False)
+        ):
+            self.cf_diagnostics.plot(episodic_metrics, env, args, output_dir)
 
         print("✅ Visualization plots generated successfully!")
 

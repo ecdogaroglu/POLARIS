@@ -89,6 +89,10 @@ class MetricsTracker:
         # Add training-specific or evaluation-specific metrics
         if self.training:
             metrics["training_loss"] = []
+            # Add training losses tracking for catastrophic forgetting diagnostics
+            metrics["training_losses"] = {agent_id: [] for agent_id in range(self.env.num_agents)}
+            # Add action logits tracking for catastrophic forgetting diagnostics  
+            metrics["action_logits"] = {agent_id: [] for agent_id in range(self.env.num_agents)}
             # Add belief distribution tracking for strategic experimentation if plot_internal_states is enabled
             if hasattr(self.args, "plot_internal_states") and self.args.plot_internal_states:
                 metrics["belief_distributions"] = {
@@ -531,3 +535,30 @@ class MetricsTracker:
                 f"Environment must implement either 'get_autarky_rate' (Social Learning) "
                 f"or 'get_theoretical_mpe' (Strategic Experimentation) methods."
             )
+
+    def update_training_losses(self, agent_id, losses_dict):
+        """
+        Update training losses for a specific agent.
+        
+        Args:
+            agent_id: Agent identifier
+            losses_dict: Dictionary containing loss values (policy_loss, belief_si_loss, etc.)
+        """
+        if self.training and "training_losses" in self.metrics:
+            self.metrics["training_losses"][agent_id].append(losses_dict.copy())
+    
+    def update_action_logits(self, agent_id, action_logits):
+        """
+        Update action logits for a specific agent.
+        
+        Args:
+            agent_id: Agent identifier  
+            action_logits: Action logits tensor or array
+        """
+        if self.training and "action_logits" in self.metrics:
+            # Convert tensor to numpy if needed and store
+            if hasattr(action_logits, 'detach'):
+                logits_data = action_logits.detach().cpu().numpy()
+            else:
+                logits_data = action_logits
+            self.metrics["action_logits"][agent_id].append(logits_data.copy())

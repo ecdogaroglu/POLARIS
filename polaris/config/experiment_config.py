@@ -90,6 +90,7 @@ class ExperimentConfig:
     plot_allocations: bool = False
     plot_incentives: bool = False
     plot_accuracy: bool = False
+    plot_cf_diagnostics: bool = False
     latex_style: bool = False
     use_tex: bool = False
     visualize_si: bool = False

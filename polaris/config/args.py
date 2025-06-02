@@ -261,6 +261,11 @@ def parse_args():
         action="store_true",
         help="Generate visualizations of Synaptic Intelligence importance scores",
     )
+    parser.add_argument(
+        "--plot-cf-diagnostics",
+        action="store_true",
+        help="Generate catastrophic forgetting diagnostic plots (requires SI enabled and multiple episodes)",
+    )
 
     args = parser.parse_args()
 
