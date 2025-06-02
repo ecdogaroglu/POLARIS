@@ -620,17 +620,16 @@ class Trainer:
             agent_beliefs = {}
 
             for agent_id, agent in self.agents.items():
-                if hasattr(agent, "action_mean") and hasattr(agent.policy, "forward"):
+                if hasattr(agent, "continuous_actions") and agent.continuous_actions and hasattr(agent.policy, "forward"):
                     # Get policy parameters directly
                     context_manager = torch.no_grad() if not training else torch.enable_grad()
                     with context_manager:
-                        mean, log_std = agent.policy(
+                        allocation = agent.policy(
                             agent.current_belief, agent.current_latent
                         )
-                        std = torch.exp(log_std)
 
-                    policy_means.append(mean.item())
-                    policy_stds.append(std.item())
+                    policy_means.append(allocation.item())
+                    policy_stds.append(0.0)  # No std for deterministic policy
 
                     # Extract agent's belief about the state
                     if (

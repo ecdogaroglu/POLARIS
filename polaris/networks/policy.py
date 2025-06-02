@@ -97,21 +97,16 @@ class ContinuousPolicyNetwork(nn.Module):
         self.fc1 = nn.Linear(input_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
 
-        # Mean and log_std output heads
-        self.mean_head = nn.Linear(hidden_dim, action_dim)
-        self.log_std_head = nn.Linear(hidden_dim, action_dim)
+        # Single output head for allocation
+        self.allocation_head = nn.Linear(hidden_dim, action_dim)
 
         # Initialize parameters
         nn.init.xavier_normal_(self.fc1.weight)
         nn.init.xavier_normal_(self.fc2.weight)
-        nn.init.xavier_normal_(self.mean_head.weight)
-        nn.init.xavier_normal_(self.log_std_head.weight)
-
-        # Initialize log_std bias to produce small initial std
-        nn.init.constant_(self.log_std_head.bias, -2)
+        nn.init.xavier_normal_(self.allocation_head.weight)
 
     def forward(self, belief, latent):
-        """Compute action distribution parameters (mean and log std) given belief and latent."""
+        """Compute allocation given belief and latent."""
         # Handle different input dimensions
         if belief.dim() == 3:  # [seq_len, batch_size, belief_dim]
             belief = belief.squeeze(0)  # Remove sequence dimension
@@ -135,39 +130,12 @@ class ContinuousPolicyNetwork(nn.Module):
         x = F.relu(self.fc1(combined))
         x = F.relu(self.fc2(x))
 
-        # Extract mean and log_std
-        mean = torch.sigmoid(self.mean_head(x))  # Sigmoid for [0,1] range
-        log_std = torch.sigmoid(self.log_std_head(x))
+        # Extract allocation and scale to action range
+        allocation = torch.sigmoid(self.allocation_head(x))  # Sigmoid for [0,1] range
+        scaled_allocation = self.min_action + (self.max_action - self.min_action) * allocation
 
-        # Scale mean to action range
-        scaled_mean = self.min_action + (self.max_action - self.min_action) * mean
+        return scaled_allocation
 
-        # Scale log_std to a range
-        min_log_std = -4
-        max_log_std = 1
-        scaled_log_std = min_log_std + (max_log_std - min_log_std) * log_std
-
-        return scaled_mean, scaled_log_std
-
-    def sample_action(self, belief, latent):
-        """Sample an action from the policy distribution."""
-        # Ensure both belief and latent are properly formatted
-        belief = belief.to(self.device)
-        latent = latent.to(self.device)
-
-        # Get distribution parameters
-        mean, log_std = self.forward(belief, latent)
-        std = log_std.exp()
-
-        # Sample from normal distribution
-        normal = torch.distributions.Normal(mean, std)
-        x_t = normal.rsample()  # Reparameterization trick
-
-        # Apply clipping to ensure actions are bounded
-        action = torch.clamp(x_t, self.min_action, self.max_action)
-
-        # Calculate log probability
-        log_prob = normal.log_prob(x_t)
-
-        # Return action, log probability, and mean
-        return action, log_prob, mean 
+    def get_action(self, belief, latent):
+        """Get action from the policy (same as forward for deterministic policy)."""
+        return self.forward(belief, latent) 

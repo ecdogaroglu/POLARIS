@@ -346,14 +346,11 @@ def generate_policy_heatmaps(agents, belief_grids, latent_grids, output_dir, arg
                     
                     # Get policy output
                     if agent.continuous_actions:
-                        # For continuous actions, get the mean allocation
-                        mean, _ = agent.policy(belief_input, latent_input)
-                        allocation = mean.squeeze().cpu().numpy()
+                        allocation = agent.policy(belief_input, latent_input)
+                        allocation = allocation.squeeze().cpu().numpy()
                     else:
-                        # For discrete actions, get action probabilities
                         action_logits = agent.policy(belief_input, latent_input)
                         action_probs = torch.softmax(action_logits, dim=-1)
-                        # Use probability of choosing action 1 (good state) as allocation
                         allocation = action_probs[0, 1].cpu().numpy()
                     
                     policy_allocations[i, j] = allocation
@@ -462,8 +459,8 @@ def generate_combined_heatmap(agents, belief_grids, latent_grids, output_dir, ar
                     
                     # Get policy output
                     if agent.continuous_actions:
-                        mean, _ = agent.policy(belief_input, latent_input)
-                        allocation = mean.squeeze().cpu().numpy()
+                        allocation = agent.policy(belief_input, latent_input)
+                        allocation = allocation.squeeze().cpu().numpy()
                     else:
                         action_logits = agent.policy(belief_input, latent_input)
                         action_probs = torch.softmax(action_logits, dim=-1)

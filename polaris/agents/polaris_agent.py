@@ -429,15 +429,12 @@ class POLARISAgent:
         """Select action based on current belief and latent."""
         if self.continuous_actions:
             # For continuous actions (strategic experimentation)
-            action, log_prob, mean = self.policy.sample_action(
+            action = self.policy.get_action(
                 self.current_belief, self.current_latent
             )
 
             # Convert to numpy and scalar (for 1D action space)
             action_value = action.squeeze().detach().cpu().numpy()
-
-            # Store the mean for tracking
-            self.action_mean = mean.detach()
 
             # Return the action value directly (allocation between 0 and 1)
             return action_value.item(), np.array([action_value.item()])
@@ -663,12 +660,8 @@ class POLARISAgent:
 
             # Compute next action distribution
             with torch.no_grad():
-                # Get mean and log_std from the policy
-                next_mean, next_log_std = self.policy(next_beliefs, next_latents)
-                next_std = torch.exp(next_log_std)
-
-                # Compute entropy (for normal distribution)
-                entropy = 0.5 + 0.5 * math.log(2 * math.pi) + next_log_std
+                # Get allocation from the policy
+                next_allocation = self.policy(next_beliefs, next_latents)
 
                 # Compute Q-values with target networks
                 next_q1 = self.target_q_network1(
@@ -684,10 +677,7 @@ class POLARISAgent:
                 # For continuous case, use the mean Q-value
                 expected_q = next_q.mean(dim=1, keepdim=True)
 
-                # Add entropy
-                expected_q = expected_q + self.entropy_weight * entropy.mean()
-
-                # Compute target
+                # Compute target (no entropy term since deterministic policy)
                 if self.discount_factor > 0:  # Discounted return
                     target_q = rewards + self.discount_factor * expected_q
                 else:  # Average reward
@@ -764,12 +754,8 @@ class POLARISAgent:
             Tuple of (policy_loss_value, advantage)
         """
         if self.continuous_actions:
-            # For continuous actions, policy outputs mean and log_std
-            mean, log_std = self.policy(beliefs, latents)
-
-            # Create normal distribution
-            std = torch.exp(log_std)
-            normal_dist = torch.distributions.Normal(mean, std)
+            # For continuous actions, policy now outputs allocation directly
+            allocation = self.policy(beliefs, latents)
 
             # For continuous case, actions are the allocation values
             if isinstance(actions, torch.Tensor):
@@ -784,18 +770,8 @@ class POLARISAgent:
                     [[float(actions)]], device=self.device
                 )
 
-            # Calculate log probability of the actions
-            log_prob = normal_dist.log_prob(continuous_actions)
-
-            # Calculate loss (negative log probability for maximization)
-            policy_loss = -log_prob.mean()
-
-            # Add entropy term for exploration
-            entropy = 0.5 + 0.5 * math.log(2 * math.pi) + log_std
-            entropy_loss = -self.entropy_weight * entropy.mean()
-
-            # Combined loss
-            policy_loss = policy_loss + entropy_loss
+            # Calculate MSE loss between predicted and actual allocations
+            policy_loss = F.mse_loss(allocation, continuous_actions)
 
             # Calculate advantage for Transformer training
             with torch.no_grad():
