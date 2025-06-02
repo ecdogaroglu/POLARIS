@@ -40,7 +40,7 @@ def main():
     parser.add_argument('--load', type=str, default=None, help='Path to load models')
     parser.add_argument('--use-si', action='store_true', help='Use Synaptic Intelligence')
     parser.add_argument('--si-importance', type=float, default=100.0, help='SI importance factor')
-    parser.add_argument('--device', type=str, default=get_best_device(), choices=['cpu', 'mps', 'cuda'], 
+    parser.add_argument('--device', type=str, default="cpu", choices=['cpu', 'mps', 'cuda'], 
                        help='Device to use')
     parser.add_argument('--plot-states', action='store_true', help='Plot internal states')
     parser.add_argument('--latex-style', action='store_true', help='Use LaTeX-style plots')

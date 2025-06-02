@@ -28,7 +28,7 @@ def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run Keller-Rady Strategic Experimentation")
     parser.add_argument('--agents', type=int, default=2, help='Number of agents')
-    parser.add_argument('--episodes', type=int, default=20, help='Number of episodes')
+    parser.add_argument('--episodes', type=int, default=40, help='Number of episodes')
     parser.add_argument('--horizon', type=int, default=100, help='Steps per episode')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--output', type=str, default='results', help='Output directory')

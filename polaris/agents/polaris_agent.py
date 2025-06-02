@@ -9,10 +9,10 @@ from polaris.algorithms.regularization.si import SILoss
 
 
 from ..agents.memory.replay_buffer import ReplayBuffer
-from ..networks.temporal_gnn import TemporalGNN
-from ..networks.policy import ContinuousPolicyNetwork, PolicyNetwork
-from ..networks.qnetwork import QNetwork, ContinuousQNetwork
-from ..networks.transformer import TransformerBeliefProcessor
+from ..networks.inference import TemporalGNN
+from ..networks.actor import ContinuousPolicyNetwork, PolicyNetwork
+from ..networks.critic import QNetwork, ContinuousQNetwork
+from ..networks.belief import TransformerBeliefProcessor
 from ..utils.device import get_best_device
 
 

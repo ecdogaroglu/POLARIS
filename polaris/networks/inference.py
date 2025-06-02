@@ -10,7 +10,7 @@ import torch_geometric
 from torch_geometric.nn import GATConv, GCNConv
 
 from ..utils.device import get_best_device
-from .transformer import InvertibleBeliefHead
+from .belief import InvertibleBeliefHead
 
 
 class AttentionProcessingError(ValueError):
