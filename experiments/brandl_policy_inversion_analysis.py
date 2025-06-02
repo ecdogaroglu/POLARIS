@@ -334,20 +334,18 @@ def generate_policy_heatmaps(agents, belief_grids, latent_grids, output_dir, arg
             for i, belief_dist in enumerate(belief_grid):
                 for j, opponent_belief_dist in enumerate(latent_grid):
                     # Convert belief distribution to hidden representation for policy input
-                    if hasattr(agent.belief_processor, 'belief_head'):
-                        # Transformer case: use invertible belief head
-                        belief_hidden = agent.belief_processor.inverse_belief_transform(
-                            belief_dist.unsqueeze(0)
-                        )
+                    # Transformer case: use invertible belief head
+                    belief_hidden = agent.belief_processor.inverse_belief_transform(
+                        belief_dist.unsqueeze(0)
+                    )
 
                     
                     # Convert opponent belief distribution to latent representation for policy input
-                    if args.use_gnn and hasattr(agent.inference_module, 'inverse_belief_transform'):
-                        # GNN case: use invertible opponent belief head
-                        latent_repr = agent.inference_module.inverse_belief_transform(
-                            opponent_belief_dist.unsqueeze(0)
-                        )
-                        latent_input = latent_repr  # [1, latent_dim]
+                    # GNN case: use invertible opponent belief head
+                    latent_repr = agent.inference_module.inverse_belief_transform(
+                        opponent_belief_dist.unsqueeze(0)
+                    )
+                    latent_input = latent_repr  # [1, latent_dim]
 
                     
                     # Prepare inputs for policy network

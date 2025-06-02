@@ -28,7 +28,7 @@ def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run Brandl Social Learning Experiment")
     parser.add_argument('--agents', type=int, default=2, help='Number of agents')
-    parser.add_argument('--episodes', type=int, default=5, help='Number of episodes')
+    parser.add_argument('--episodes', type=int, default=10, help='Number of episodes')
     parser.add_argument('--horizon', type=int, default=100, help='Steps per episode')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--signal-accuracy', type=float, default=0.75, help='Signal accuracy')
@@ -39,8 +39,8 @@ def main():
     parser.add_argument('--eval', action='store_true', help='Evaluation mode')
     parser.add_argument('--load', type=str, default=None, help='Path to load models')
     parser.add_argument('--use-gnn', action='store_true', default=True, help='Use GNN inference')
-    parser.add_argument('--use-si', action='store_true', help='Use Synaptic Intelligence')
-    parser.add_argument('--si-importance', type=float, default=10.0, help='SI importance weight')
+    parser.add_argument('--use-si', action='store_true', default=True, help='Use Synaptic Intelligence')
+    parser.add_argument('--si-importance', type=float, default=1.0, help='SI importance weight')
     parser.add_argument('--plot-states', action='store_true', default=True, help='Plot internal states')
     parser.add_argument('--latex-style', action='store_true', default=True, help='Use LaTeX styling')
     parser.add_argument('--device', type=str, default="cpu", choices=['cpu', 'mps', 'cuda'], 

@@ -258,8 +258,6 @@ class POLARISAgent:
 
         if self.use_si:
             # Use a much higher importance factor for better protection against forgetting
-            # The default value might be too low for this specific task
-            actual_importance = si_importance * 10.0  # Increase by 10x
 
             # Define layers to exclude from SI if requested
             self.excluded_belief_layers = []
@@ -279,7 +277,7 @@ class POLARISAgent:
             # Initialize SI for belief processor with layer exclusion
             self.belief_si = SILoss(
                 model=self.belief_processor,
-                importance=actual_importance,
+                importance=si_importance,
                 damping=si_damping,
                 device=device,
                 excluded_layers=self.excluded_belief_layers,
@@ -288,7 +286,7 @@ class POLARISAgent:
             # Initialize SI for policy network with layer exclusion
             self.policy_si = SILoss(
                 model=self.policy,
-                importance=actual_importance,
+                importance=si_importance,
                 damping=si_damping,
                 device=device,
                 excluded_layers=self.excluded_policy_layers,
@@ -478,7 +476,7 @@ class POLARISAgent:
             # For discrete actions (original approach)
             # Calculate fresh action logits for action selection
             action_logits = self.policy(self.current_belief, self.current_latent)
-
+        
             # Store a detached copy for caching
             self.action_logits = action_logits.detach()
 
