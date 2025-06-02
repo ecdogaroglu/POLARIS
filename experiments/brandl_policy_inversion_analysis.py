@@ -32,7 +32,7 @@ from polaris.config.experiment_config import (
     ExperimentConfig, AgentConfig, TrainingConfig, BrandlConfig
 )
 from polaris.environments import SocialLearningEnvironment
-from polaris.simulation import run_experiment
+from polaris.training.simulation import run_experiment
 from polaris.utils.device import get_best_device
 
 

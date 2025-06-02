@@ -292,13 +292,13 @@ class Trainer:
 **Methods:**
 
 #### `run_agents(training=True, model_path=None)`
-Main training/evaluation loop.
+Main training/evaluation loop. Handles both training and evaluation based on the `training` parameter.
 
 #### `evaluate(num_episodes=None, num_steps=None)`
-Evaluate trained agents.
+Evaluate trained agents with specified parameters.
 
 #### `quick_evaluate(num_steps=100)`
-Perform quick evaluation.
+Perform quick evaluation for basic performance metrics.
 
 ### Function Interface
 
@@ -325,14 +325,9 @@ def run_agents(env, args, training=True, model_path=None):
     """
 ```
 
-### Evaluator
-
-```python
-class Evaluator:
-    def __init__(self, env, agents, args)
-```
-
-Evaluates trained agents and computes performance metrics.
+**Note:** The Trainer class now handles both training and evaluation internally. When `training=False`, 
+the trainer automatically switches to evaluation mode, sets agents to eval mode, uses `torch.no_grad()` 
+for inference, and skips network parameter updates.
 
 ---
 

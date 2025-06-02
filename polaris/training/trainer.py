@@ -36,7 +36,6 @@ from ..utils.metrics import (
     update_metrics,
 )
 from ..visualization import POLARISPlotter
-from .evaluator import Evaluator
 
 
 class Trainer:
@@ -61,7 +60,6 @@ class Trainer:
         self.replay_buffers = None
         self.metrics = None
         self.output_dir = None
-        self.evaluator = None
         self.plotter = POLARISPlotter(
             use_latex=self.args.latex_style if hasattr(self.args, "latex_style") else False,
             use_tex=self.args.use_tex if hasattr(self.args, "use_tex") else False
@@ -88,9 +86,6 @@ class Trainer:
         load_agent_models(
             self.agents, model_path, self.env.num_agents, training=training
         )
-
-        # Initialize evaluator
-        self.evaluator = Evaluator(self.env, self.agents, self.args)
 
         # Store agents for potential SI visualization
         if hasattr(self.args, "visualize_si") and self.args.visualize_si and training:
@@ -120,6 +115,9 @@ class Trainer:
             f"Running {self.args.num_episodes} training episode(s) with {self.args.horizon} steps per episode"
         )
 
+        # Set agents to training mode
+        self._set_agents_train_mode()
+
         # Initialize episodic metrics to store each episode separately
         episodic_metrics = {"episodes": []}
 
@@ -136,7 +134,7 @@ class Trainer:
             self.metrics = initialize_metrics(self.env, self.args, training=True)
 
             # Run simulation for this episode
-            observations, episode_metrics = self._run_training_simulation()
+            observations, episode_metrics = self._run_simulation(training=True)
 
             # Store this episode's metrics separately
             episodic_metrics["episodes"].append(episode_metrics)
@@ -150,17 +148,45 @@ class Trainer:
             f"Running evaluation for {self.args.num_episodes} episode(s) with {self.args.horizon} steps per episode"
         )
 
-        # Use the evaluator for comprehensive evaluation
-        evaluation_results = self.evaluator.evaluate(
-            num_episodes=self.args.num_episodes,
-            num_steps=self.args.horizon,
-            output_dir=self.output_dir,
-        )
+        # Set agents to evaluation mode
+        self._set_agents_eval_mode()
 
-        # Process evaluation results for compatibility
-        episodic_metrics = evaluation_results["episodic_metrics"]
-        combined_metrics = evaluation_results["aggregated_metrics"]
-        learning_rates = evaluation_results["learning_rates"]
+        # Initialize episodic metrics to store each episode separately
+        episodic_metrics = {"episodes": []}
+
+        # Evaluation episode loop
+        for episode in range(self.args.num_episodes):
+            # Set different seed for each episode (offset to avoid training seed overlap)
+            episode_seed = self.args.seed + episode + 1000
+            setup_random_seeds(episode_seed, self.env)
+            print(
+                f"\nEvaluating episode {episode+1}/{self.args.num_episodes} with seed {episode_seed}"
+            )
+
+            # Initialize fresh metrics for this episode
+            self.metrics = initialize_metrics(self.env, self.args, training=False)
+
+            # Run simulation for this episode
+            observations, episode_metrics = self._run_simulation(training=False)
+
+            # Store this episode's metrics separately
+            episodic_metrics["episodes"].append(episode_metrics)
+
+        # Process evaluation results
+        return self._process_evaluation_results(episodic_metrics, theoretical_bounds)
+
+    def _process_evaluation_results(self, episodic_metrics, theoretical_bounds):
+        """Process and save evaluation results."""
+        # Aggregate results across episodes
+        combined_metrics = self._aggregate_episode_results(episodic_metrics)
+
+        # Calculate learning rates and performance metrics
+        learning_rates = calculate_agent_learning_rates_from_metrics(combined_metrics)
+
+        # Add evaluation summary
+        evaluation_summary = self._calculate_evaluation_summary(
+            episodic_metrics, learning_rates
+        )
 
         # Save evaluation results
         serializable_metrics = prepare_serializable_metrics(
@@ -173,7 +199,7 @@ class Trainer:
 
         # Save detailed evaluation results
         evaluation_serializable_metrics = {
-            "evaluation_summary": evaluation_results["evaluation_summary"],
+            "evaluation_summary": evaluation_summary,
             "episodic_data": episodic_metrics,
             "aggregated_metrics": combined_metrics,
             "learning_rates": learning_rates,
@@ -262,9 +288,10 @@ class Trainer:
 
         return episodic_metrics, serializable_metrics
 
-    def _run_training_simulation(self):
-        """Run the main training simulation loop."""
-        print(f"Starting training for {self.args.horizon} steps...")
+    def _run_simulation(self, training=True):
+        """Run the main simulation loop for either training or evaluation."""
+        mode_str = "training" if training else "evaluation"
+        print(f"Starting {mode_str} for {self.args.horizon} steps...")
         start_time = time.time()
 
         # Initialize environment and agents
@@ -274,18 +301,15 @@ class Trainer:
         # Print environment state information
         self._print_environment_info()
 
-        # If using SI, set the current true state for all agents
-        self._setup_si_for_training()
+        # If using SI, set the current true state for all agents (only during training)
+        if training:
+            self._setup_si_for_training()
 
         # Set global metrics for access in other functions
         set_metrics(self.metrics)
 
         # Reset and initialize agent internal states
         reset_agent_internal_states(self.agents)
-
-        # Set agents to training mode
-        for agent_id, agent in self.agents.items():
-            agent.set_train_mode()
 
         # Extract environment parameters for MPE calculation
         env_params = self._extract_environment_params()
@@ -294,13 +318,13 @@ class Trainer:
         attention_weights_history = []
 
         # Main simulation loop
-        steps_iterator = tqdm(range(self.args.horizon), desc="Training")
+        steps_iterator = tqdm(range(self.args.horizon), desc=mode_str.capitalize())
         for step in steps_iterator:
             # Get agent actions
             actions, action_probs = select_agent_actions(self.agents, self.metrics)
 
             # Collect policy information for continuous actions
-            policy_info = self._collect_policy_information_training()
+            policy_info = self._collect_policy_information(training)
 
             # Take environment step
             next_observations, rewards, done, info = self.env.step(
@@ -310,15 +334,16 @@ class Trainer:
             # Add policy distribution parameters to info
             if policy_info:
                 info.update(policy_info)
-                info["env_params"] = env_params
+                if training:  # Only add env_params during training
+                    info["env_params"] = env_params
 
             # Update rewards
             if rewards:
                 update_total_rewards(total_rewards, rewards)
 
             # Update agent states and store transitions
-            self._update_agent_states_training(
-                observations, next_observations, actions, rewards, step
+            self._update_agent_states(
+                observations, next_observations, actions, rewards, step, training
             )
 
             # Capture attention weights from GNN agents
@@ -343,22 +368,152 @@ class Trainer:
 
             # Update progress display
             update_progress_display(
-                steps_iterator, info, total_rewards, step, training=True
+                steps_iterator, info, total_rewards, step, training=training
             )
 
             if done:
-                self._handle_si_state_changes()
+                if training:
+                    self._handle_si_state_changes()
                 break
 
         # Store attention weights in metrics
         if attention_weights_history:
             self.metrics["attention_weights"] = attention_weights_history
 
-        # Display completion time
+        # Add episode summary to metrics
         total_time = time.time() - start_time
-        print(f"Training completed in {total_time:.2f} seconds")
+        self.metrics["episode_time"] = total_time
+        self.metrics["total_rewards"] = {
+            i: total_rewards[i] for i in range(self.env.num_agents)
+        }
+        self.metrics["final_observations"] = observations
+
+        # Display completion time
+        print(f"{mode_str.capitalize()} completed in {total_time:.2f} seconds")
 
         return observations, self.metrics
+
+    def _set_agents_train_mode(self):
+        """Set all agents to training mode."""
+        for agent in self.agents.values():
+            agent.set_train_mode()
+        print(f"Set {len(self.agents)} agents to training mode")
+
+    def _set_agents_eval_mode(self):
+        """Set all agents to evaluation mode."""
+        for agent in self.agents.values():
+            agent.set_eval_mode()
+        print(f"Set {len(self.agents)} agents to evaluation mode")
+
+    def _aggregate_episode_results(self, episodic_metrics):
+        """Aggregate results across multiple episodes."""
+        if not episodic_metrics["episodes"]:
+            return {}
+
+        # Get the structure from the first episode
+        first_episode = episodic_metrics["episodes"][0]
+        aggregated = {}
+
+        # Aggregate different types of metrics
+        for key, value in first_episode.items():
+            if key == "episode_time":
+                # Average episode time
+                times = [
+                    ep.get("episode_time", 0) for ep in episodic_metrics["episodes"]
+                ]
+                aggregated[key] = np.mean(times)
+            elif key == "total_rewards":
+                # Average total rewards per agent
+                all_rewards = [
+                    ep.get("total_rewards", {}) for ep in episodic_metrics["episodes"]
+                ]
+                if all_rewards and all_rewards[0]:
+                    aggregated[key] = {}
+                    for agent_id in all_rewards[0].keys():
+                        rewards = [
+                            ep_rewards.get(agent_id, 0) for ep_rewards in all_rewards
+                        ]
+                        aggregated[key][agent_id] = np.mean(rewards)
+            elif isinstance(value, dict) and all(
+                isinstance(v, list) for v in value.values()
+            ):
+                # Metrics with agent-specific lists (like belief_distributions)
+                aggregated[key] = {}
+                for agent_id in value.keys():
+                    # Concatenate lists across episodes
+                    agent_data = []
+                    for ep in episodic_metrics["episodes"]:
+                        if key in ep and agent_id in ep[key]:
+                            agent_data.extend(ep[key][agent_id])
+                    aggregated[key][agent_id] = agent_data
+            elif isinstance(value, list):
+                # Simple lists - concatenate across episodes
+                aggregated_list = []
+                for ep in episodic_metrics["episodes"]:
+                    if key in ep:
+                        aggregated_list.extend(ep[key])
+                aggregated[key] = aggregated_list
+
+        return aggregated
+
+    def _calculate_evaluation_summary(self, episodic_metrics, learning_rates):
+        """Calculate summary statistics for the evaluation."""
+        summary = {
+            "num_episodes": len(episodic_metrics["episodes"]),
+            "learning_rates": learning_rates,
+        }
+
+        # Calculate reward statistics
+        if (
+            episodic_metrics["episodes"]
+            and "total_rewards" in episodic_metrics["episodes"][0]
+        ):
+            reward_stats = {}
+            for agent_id in range(self.env.num_agents):
+                rewards = [
+                    ep["total_rewards"].get(agent_id, 0)
+                    for ep in episodic_metrics["episodes"]
+                    if "total_rewards" in ep
+                ]
+                if rewards:
+                    reward_stats[agent_id] = {
+                        "mean": np.mean(rewards),
+                        "std": np.std(rewards),
+                        "min": np.min(rewards),
+                        "max": np.max(rewards),
+                    }
+            summary["reward_statistics"] = reward_stats
+
+        # Calculate action accuracy if we have true states and actions
+        if (
+            episodic_metrics["episodes"]
+            and any("true_states" in ep for ep in episodic_metrics["episodes"])
+            and any("agent_actions" in ep for ep in episodic_metrics["episodes"])
+        ):
+
+            accuracy_stats = {}
+            for agent_id in range(self.env.num_agents):
+                correct_actions = 0
+                total_actions = 0
+
+                for ep in episodic_metrics["episodes"]:
+                    if "true_states" in ep and "agent_actions" in ep:
+                        true_states = ep["true_states"]
+                        agent_actions = ep["agent_actions"].get(agent_id, [])
+
+                        for i, (true_state, action) in enumerate(
+                            zip(true_states, agent_actions)
+                        ):
+                            if action == true_state:
+                                correct_actions += 1
+                            total_actions += 1
+
+                if total_actions > 0:
+                    accuracy_stats[agent_id] = correct_actions / total_actions
+
+            summary["action_accuracy"] = accuracy_stats
+
+        return summary
 
     def _capture_attention_weights(self):
         """Capture attention weights from GNN-enabled agents."""
@@ -439,8 +594,8 @@ class Trainer:
             }
         return env_params
 
-    def _collect_policy_information_training(self):
-        """Collect policy information during training."""
+    def _collect_policy_information(self, training=True):
+        """Collect policy information during simulation."""
         policy_info = {}
 
         if hasattr(self.args, "continuous_actions") and self.args.continuous_actions:
@@ -451,7 +606,8 @@ class Trainer:
             for agent_id, agent in self.agents.items():
                 if hasattr(agent, "action_mean") and hasattr(agent.policy, "forward"):
                     # Get policy parameters directly
-                    with torch.no_grad():
+                    context_manager = torch.no_grad() if not training else torch.enable_grad()
+                    with context_manager:
                         mean, log_std = agent.policy(
                             agent.current_belief, agent.current_latent
                         )
@@ -547,8 +703,8 @@ class Trainer:
                     # Update the current true state
                     agent.current_true_state = current_true_state
 
-    def _update_agent_states_training(
-        self, observations, next_observations, actions, rewards, step
+    def _update_agent_states(
+        self, observations, next_observations, actions, rewards, step, training=True
     ):
         """Update agent states and store transitions in replay buffer during training."""
 
@@ -630,21 +786,34 @@ class Trainer:
             latent = agent.current_latent.detach().clone()
 
             # Update agent belief state
-            next_belief, next_dstr = agent.observe(signal_encoded, actions_encoded)
-            # Infer latent state for next observation
-            # This ensures we're using the correct latent state for the next observation
-            next_latent = agent.infer_latent(
-                signal_encoded,
-                actions_encoded,
-                (
-                    rewards[agent_id]
-                    if isinstance(rewards[agent_id], float)
-                    else rewards[agent_id]["total"]
-                ),
-                next_signal_encoded,
-            )
-
-            # Store internal states for visualization if requested (for both training and evaluation)
+            if training:
+                next_belief, next_dstr = agent.observe(signal_encoded, actions_encoded)
+                # Infer latent state for next observation
+                next_latent = agent.infer_latent(
+                    signal_encoded,
+                    actions_encoded,
+                    (
+                        rewards[agent_id]
+                        if isinstance(rewards[agent_id], float)
+                        else rewards[agent_id]["total"]
+                    ),
+                    next_signal_encoded,
+                )
+            else:
+                # During evaluation, use no_grad to prevent gradient computation
+                with torch.no_grad():
+                    next_belief, next_dstr = agent.observe(signal_encoded, actions_encoded)
+                    # Infer latent state for next observation
+                    next_latent = agent.infer_latent(
+                        signal_encoded,
+                        actions_encoded,
+                        (
+                            rewards[agent_id]
+                            if isinstance(rewards[agent_id], float)
+                            else rewards[agent_id]["total"]
+                        ),
+                        signal_encoded,  # Use current signal for latent inference during evaluation
+                    )
 
             # Store belief distribution if available
             belief_distribution = agent.get_belief_distribution()
@@ -652,8 +821,8 @@ class Trainer:
                 belief_distribution.detach().cpu().numpy()
             )
 
-            # Store transition in replay buffer and update networks
-            if agent_id in self.replay_buffers:
+            # Store transition in replay buffer and update networks (only during training)
+            if training and agent_id in self.replay_buffers:
 
                 # Get mean and logvar from inference
                 mean, logvar = agent.get_latent_distribution_params()
@@ -789,6 +958,69 @@ class Trainer:
             )
         return replay_buffers
 
+    def quick_evaluate(self, num_steps=100):
+        """
+        Perform a quick evaluation for basic performance metrics.
+
+        Args:
+            num_steps: Number of steps for quick evaluation
+
+        Returns:
+            Dictionary with basic performance metrics
+        """
+        # Set agents to eval mode
+        self._set_agents_eval_mode()
+
+        # Initialize
+        observations = self.env.initialize()
+        total_rewards = np.zeros(self.env.num_agents)
+        correct_actions = np.zeros(self.env.num_agents)
+
+        print(f"Quick evaluation for {num_steps} steps...")
+
+        for step in range(num_steps):
+            # Get actions
+            actions, _ = select_agent_actions(self.agents, {})
+
+            # Environment step
+            next_observations, rewards, done, info = self.env.step(actions, {})
+
+            # Update rewards
+            if rewards:
+                for agent_id, reward in rewards.items():
+                    if isinstance(reward, dict):
+                        total_rewards[agent_id] += reward["total"]
+                    else:
+                        total_rewards[agent_id] += reward
+
+            # Check action correctness if true state is available
+            if hasattr(self.env, "true_state"):
+                for agent_id, action in actions.items():
+                    if action == self.env.true_state:
+                        correct_actions[agent_id] += 1
+
+            observations = next_observations
+
+            if done:
+                break
+
+        # Calculate metrics
+        results = {
+            "average_reward": float(np.mean(total_rewards)),
+            "total_rewards": {
+                i: float(total_rewards[i]) for i in range(self.env.num_agents)
+            },
+        }
+
+        if hasattr(self.env, "true_state"):
+            results["action_accuracy"] = {
+                i: float(correct_actions[i] / num_steps)
+                for i in range(self.env.num_agents)
+            }
+            results["average_accuracy"] = float(np.mean(correct_actions / num_steps))
+
+        return results
+
     # Public evaluation methods for external use
     def evaluate(self, num_episodes=None, num_steps=None):
         """
@@ -801,24 +1033,40 @@ class Trainer:
         Returns:
             Evaluation results dictionary
         """
-        if self.evaluator is None:
-            self.evaluator = Evaluator(self.env, self.agents, self.args)
+        # Use provided values or fall back to args
+        eval_episodes = (
+            num_episodes
+            if num_episodes is not None
+            else getattr(self.args, "num_episodes", 1)
+        )
+        eval_steps = (
+            num_steps if num_steps is not None else getattr(self.args, "horizon", 1000)
+        )
 
-        return self.evaluator.evaluate(num_episodes, num_steps, self.output_dir)
+        # Temporarily store original values
+        original_episodes = self.args.num_episodes
+        original_horizon = self.args.horizon
 
-    def quick_evaluate(self, num_steps=100):
-        """
-        Perform a quick evaluation.
+        # Set the values for evaluation
+        self.args.num_episodes = eval_episodes
+        self.args.horizon = eval_steps
 
-        Args:
-            num_steps: Number of steps for quick evaluation
-
-        Returns:
-            Basic performance metrics
-        """
-        if self.evaluator is None:
-            self.evaluator = Evaluator(self.env, self.agents, self.args)
-
-        return self.evaluator.quick_evaluate(num_steps)
+        try:
+            # Run evaluation using the existing evaluation logic
+            episodic_metrics, serializable_metrics = self.run_agents(training=False)
+            
+            # Return in the format expected by external callers
+            return {
+                "episodic_metrics": episodic_metrics,
+                "aggregated_metrics": serializable_metrics,
+                "learning_rates": serializable_metrics.get("learning_rates", {}),
+                "evaluation_summary": serializable_metrics.get("evaluation_summary", {}),
+                "num_episodes": eval_episodes,
+                "steps_per_episode": eval_steps,
+            }
+        finally:
+            # Restore original values
+            self.args.num_episodes = original_episodes
+            self.args.horizon = original_horizon
 
 
