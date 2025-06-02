@@ -39,8 +39,7 @@ def encode_observation(
         elif isinstance(signal, torch.Tensor):
             signal_one_hot = signal.clone().detach().float().view(1)
         else:
-            # Default fallback
-            signal_one_hot = torch.tensor([0.0])
+            raise ValueError(f"Invalid signal type: {type(signal)}")
     else:
         # One-hot encode discrete signals
         signal_one_hot = torch.zeros(num_states)

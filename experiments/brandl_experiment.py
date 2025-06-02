@@ -72,16 +72,6 @@ def main():
     print(f"Network type: {config.environment.network_type}, Number of agents: {config.environment.num_agents}")
     print(f"Signal accuracy: {config.environment.signal_accuracy}")
     
-    # Calculate theoretical bounds
-    autarky_rate = env.get_autarky_rate()
-    bound_rate = env.get_bound_rate()
-    coordination_rate = env.get_coordination_rate()
-    
-    print(f"\nTheoretical learning rates:")
-    print(f"- Autarky rate: {autarky_rate:.4f} (isolated agent)")
-    print(f"- Bound rate: {bound_rate:.4f} (maximum possible for any agent)")
-    print(f"- Coordination rate: {coordination_rate:.4f} (achievable with coordination)")
-    
     # Print episode information if training
     if not config.eval_only and config.training.num_episodes > 1:
         print(f"\nTraining with {config.training.num_episodes} episodes, {config.training.horizon} steps per episode")

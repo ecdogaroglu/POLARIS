@@ -7,6 +7,7 @@ import time
 import numpy as np
 import torch
 from tqdm import tqdm
+from pathlib import Path
 
 from ..agents.memory.replay_buffer import ReplayBuffer
 from ..agents.polaris_agent import POLARISAgent
@@ -27,15 +28,9 @@ from ..utils.io import (
     update_total_rewards,
     write_config_file,
 )
-from ..utils.metrics import (
-    calculate_agent_learning_rates_from_metrics,
-    calculate_theoretical_bounds,
-    initialize_metrics,
-    prepare_serializable_metrics,
-    save_metrics_to_file,
-    update_metrics,
-)
+from ..utils.metrics import MetricsTracker
 from ..visualization import POLARISPlotter
+
 
 
 class Trainer:
@@ -44,6 +39,9 @@ class Trainer:
 
     This class encapsulates all the logic for running POLARIS agents in social learning
     environments, including training, evaluation, and model management.
+    
+    The trainer now uses the MetricsTracker class for efficient metrics collection and 
+    processing, providing better organization and easier extensibility.
     """
 
     def __init__(self, env, args):
@@ -58,7 +56,7 @@ class Trainer:
         self.args = args
         self.agents = None
         self.replay_buffers = None
-        self.metrics = None
+        self.metrics_tracker = None
         self.output_dir = None
         self.plotter = POLARISPlotter(
             use_latex=self.args.latex_style if hasattr(self.args, "latex_style") else False,
@@ -93,8 +91,9 @@ class Trainer:
 
             create_si_visualizations(self.agents, self.output_dir)
 
-        # Calculate and display theoretical bounds
-        theoretical_bounds = calculate_theoretical_bounds(self.env)
+        # Calculate and display theoretical bounds using temporary tracker
+        temp_tracker = MetricsTracker(self.env, self.args, training=training)
+        theoretical_bounds = temp_tracker.get_theoretical_bounds()
 
         # Handle training vs evaluation
         if training:
@@ -131,7 +130,7 @@ class Trainer:
             )
 
             # Initialize fresh metrics for this episode
-            self.metrics = initialize_metrics(self.env, self.args, training=True)
+            self.metrics_tracker = MetricsTracker(self.env, self.args, training=True)
 
             # Run simulation for this episode
             observations, episode_metrics = self._run_simulation(training=True)
@@ -164,7 +163,7 @@ class Trainer:
             )
 
             # Initialize fresh metrics for this episode
-            self.metrics = initialize_metrics(self.env, self.args, training=False)
+            self.metrics_tracker = MetricsTracker(self.env, self.args, training=False)
 
             # Run simulation for this episode
             observations, episode_metrics = self._run_simulation(training=False)
@@ -180,21 +179,21 @@ class Trainer:
         # Aggregate results across episodes
         combined_metrics = self._aggregate_episode_results(episodic_metrics)
 
-        # Calculate learning rates and performance metrics
-        learning_rates = calculate_agent_learning_rates_from_metrics(combined_metrics)
+        # Use MetricsTracker to calculate learning rates
+        temp_tracker = MetricsTracker(self.env, self.args, training=False)
+        temp_tracker.metrics = combined_metrics
+        learning_rates = temp_tracker.get_learning_rates()
 
         # Add evaluation summary
         evaluation_summary = self._calculate_evaluation_summary(
             episodic_metrics, learning_rates
         )
 
-        # Save evaluation results
-        serializable_metrics = prepare_serializable_metrics(
-            combined_metrics,
+        # Use MetricsTracker to prepare serializable metrics
+        serializable_metrics = temp_tracker.prepare_for_serialization(
             learning_rates,
             theoretical_bounds,
             self.args.horizon,
-            training=False,
         )
 
         # Save detailed evaluation results
@@ -208,12 +207,11 @@ class Trainer:
             "num_episodes": self.args.num_episodes,
         }
 
-        save_metrics_to_file(serializable_metrics, self.output_dir, training=False)
-        save_metrics_to_file(
-            evaluation_serializable_metrics,
+        # Use MetricsTracker to save metrics files
+        temp_tracker.save_to_file(self.output_dir)
+        temp_tracker.save_to_file(
             self.output_dir,
-            training=False,
-            filename="detailed_evaluation_results.json",
+            filename="detailed_evaluation_results.json"
         )
 
         # Generate plots with LaTeX style if requested
@@ -235,8 +233,10 @@ class Trainer:
             episodic_metrics, self.env.num_agents
         )
 
-        # Process results
-        learning_rates = calculate_agent_learning_rates_from_metrics(combined_metrics)
+        # Use MetricsTracker to calculate learning rates
+        temp_tracker = MetricsTracker(self.env, self.args, training=True)
+        temp_tracker.metrics = combined_metrics
+        learning_rates = temp_tracker.get_learning_rates()
 
         # Create SI visualizations after training is complete
         if hasattr(self.args, "visualize_si") and self.args.visualize_si:
@@ -245,13 +245,11 @@ class Trainer:
             print("\n===== FINAL SI STATE (AFTER TRAINING) =====")
             create_si_visualizations(self.agents, self.output_dir)
 
-        # Save metrics and models
-        serializable_metrics = prepare_serializable_metrics(
-            combined_metrics,
+        # Use MetricsTracker to prepare serializable metrics
+        serializable_metrics = temp_tracker.prepare_for_serialization(
             learning_rates,
             theoretical_bounds,
             self.args.horizon,
-            training=True,
         )
 
         # Also save the episodic metrics for more detailed analysis
@@ -263,13 +261,11 @@ class Trainer:
             "num_episodes": self.args.num_episodes,
         }
 
-        save_metrics_to_file(serializable_metrics, self.output_dir, training=True)
-        
-        save_metrics_to_file(
-            episodic_serializable_metrics,
+        # Use MetricsTracker to save metrics files
+        temp_tracker.save_to_file(self.output_dir)
+        temp_tracker.save_to_file(
             self.output_dir,
-            training=True,
-            filename="episodic_metrics.json",
+            filename="episodic_metrics.json"
         )
 
         if self.args.save_model:
@@ -306,7 +302,7 @@ class Trainer:
             self._setup_si_for_training()
 
         # Set global metrics for access in other functions
-        set_metrics(self.metrics)
+        set_metrics(self.metrics_tracker.get_raw_metrics())
 
         # Reset and initialize agent internal states
         reset_agent_internal_states(self.agents)
@@ -321,7 +317,7 @@ class Trainer:
         steps_iterator = tqdm(range(self.args.horizon), desc=mode_str.capitalize())
         for step in steps_iterator:
             # Get agent actions
-            actions, action_probs = select_agent_actions(self.agents, self.metrics)
+            actions, action_probs = select_agent_actions(self.agents, self.metrics_tracker.get_raw_metrics())
 
             # Collect policy information for continuous actions
             policy_info = self._collect_policy_information(training)
@@ -364,7 +360,7 @@ class Trainer:
                     info["allocations"] = actions
 
             # Store and process metrics
-            update_metrics(self.metrics, info, actions, action_probs)
+            self.metrics_tracker.update(info, actions, action_probs)
 
             # Update progress display
             update_progress_display(
@@ -378,20 +374,21 @@ class Trainer:
 
         # Store attention weights in metrics
         if attention_weights_history:
-            self.metrics["attention_weights"] = attention_weights_history
+            self.metrics_tracker.get_raw_metrics()["attention_weights"] = attention_weights_history
 
         # Add episode summary to metrics
         total_time = time.time() - start_time
-        self.metrics["episode_time"] = total_time
-        self.metrics["total_rewards"] = {
+        raw_metrics = self.metrics_tracker.get_raw_metrics()
+        raw_metrics["episode_time"] = total_time
+        raw_metrics["total_rewards"] = {
             i: total_rewards[i] for i in range(self.env.num_agents)
         }
-        self.metrics["final_observations"] = observations
+        raw_metrics["final_observations"] = observations
 
         # Display completion time
         print(f"{mode_str.capitalize()} completed in {total_time:.2f} seconds")
 
-        return observations, self.metrics
+        return observations, raw_metrics
 
     def _set_agents_train_mode(self):
         """Set all agents to training mode."""
@@ -817,7 +814,7 @@ class Trainer:
 
             # Store belief distribution if available
             belief_distribution = agent.get_belief_distribution()
-            self.metrics["belief_distributions"][agent_id].append(
+            self.metrics_tracker.get_raw_metrics()["belief_distributions"][agent_id].append(
                 belief_distribution.detach().cpu().numpy()
             )
 

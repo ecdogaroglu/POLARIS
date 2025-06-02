@@ -179,6 +179,40 @@ def flatten_episodic_metrics(episodic_metrics: Dict, num_agents: int) -> Dict:
     return combined_metrics
 
 
+def make_json_serializable(obj):
+    """
+    Convert a Python object to a JSON serializable format.
+
+    Args:
+        obj: Any Python object
+
+    Returns:
+        JSON serializable version of the object
+    """
+    if isinstance(obj, (np.int32, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (np.float32, np.float64)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return make_json_serializable(obj.tolist())
+    elif isinstance(obj, list):
+        return [make_json_serializable(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {
+            make_json_serializable(key): make_json_serializable(value)
+            for key, value in obj.items()
+        }
+    elif isinstance(obj, tuple):
+        return tuple(make_json_serializable(item) for item in obj)
+    elif isinstance(obj, set):
+        return list(make_json_serializable(item) for item in obj)
+    elif hasattr(obj, "tolist"):  # For torch tensors
+        return make_json_serializable(obj.tolist())
+    elif hasattr(obj, "item"):  # For scalar tensors
+        return obj.item()
+    else:
+        return obj
+
 # Agent and simulation utilities
 
 

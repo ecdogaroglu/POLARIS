@@ -246,7 +246,7 @@ class PolicyNetwork(nn.Module):
         self.action_dim = action_dim
 
         # Combined input: belief and latent
-        input_dim = belief_dim
+        input_dim = belief_dim + latent_dim
 
         # Policy network layers
         self.fc1 = nn.Linear(input_dim, hidden_dim)
@@ -269,7 +269,7 @@ class PolicyNetwork(nn.Module):
         # For batched inputs
         if belief.dim() == 2 and latent.dim() == 2:
             # Combine inputs along feature dimension
-            combined = torch.cat([belief], dim=1)
+            combined = torch.cat([belief, latent], dim=1)
         # For single inputs
         else:
             # Ensure we have batch dimension
