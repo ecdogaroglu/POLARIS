@@ -28,8 +28,8 @@ def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run Keller-Rady Strategic Experimentation")
     parser.add_argument('--agents', type=int, default=2, help='Number of agents')
-    parser.add_argument('--episodes', type=int, default=1, help='Number of episodes')
-    parser.add_argument('--horizon', type=int, default=1000, help='Steps per episode')
+    parser.add_argument('--episodes', type=int, default=3, help='Number of episodes')
+    parser.add_argument('--horizon', type=int, default=100, help='Steps per episode')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--output', type=str, default='results', help='Output directory')
     parser.add_argument('--eval', action='store_true', help='Evaluation mode')
@@ -39,8 +39,9 @@ def main():
     parser.add_argument('--plot-allocations', action='store_true', default=True, help='Plot allocations')
     parser.add_argument('--plot-incentives', action='store_true', default=True, help='Plot agent incentives')
     parser.add_argument('--plot-states', action='store_true', default=True, help='Plot internal states')
+    parser.add_argument('--plot-accuracy', action='store_true', default=True, help='Plot belief and allocation accuracy')
     parser.add_argument('--latex-style', action='store_true', default=True, help='Use LaTeX styling')
-    parser.add_argument('--device', type=str, default=get_best_device(), choices=['cpu', 'mps', 'cuda'], 
+    parser.add_argument('--device', type=str, default="cpu", choices=['cpu', 'mps', 'cuda'], 
                        help='Device to use')
     args = parser.parse_args()
     
@@ -88,9 +89,6 @@ def main():
     if not config.eval_only and config.training.num_episodes > 1:
         print(f"\nTraining with {config.training.num_episodes} episodes, {config.training.horizon} steps per episode")
         print(f"True state will be randomly selected at the beginning of each episode with different seeds")
-    
-    # Print model architecture information
-    print("Using Graph Neural Network")
     
     if config.agent.use_si:
         print(f"Using Synaptic Intelligence with importance {config.agent.si_importance}")
@@ -159,6 +157,7 @@ def create_strategic_config(args) -> ExperimentConfig:
         plot_internal_states=args.plot_states,
         plot_allocations=args.plot_allocations,
         plot_incentives=args.plot_incentives,
+        plot_accuracy=args.plot_accuracy,
         latex_style=args.latex_style,
         use_tex=False  # Avoid LaTeX rendering issues, use LaTeX-like styling instead
     )

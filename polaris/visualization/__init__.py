@@ -8,6 +8,7 @@ from .plots.allocations import AllocationPlotter
 from .plots.beliefs import BeliefPlotter
 from .plots.incentives import IncentivePlotter
 from .plots.learning_curves import LearningCurvePlotter
+from .plots.accuracy import AccuracyPlotter
 
 
 class POLARISPlotter:
@@ -38,6 +39,7 @@ class POLARISPlotter:
         self.beliefs = BeliefPlotter(use_latex=use_latex)
         self.allocations = AllocationPlotter(use_latex=use_latex)
         self.incentives = IncentivePlotter(use_latex=use_latex)
+        self.accuracy = AccuracyPlotter(use_latex=use_latex)
 
     def generate_all_plots(
         self, metrics, env, args, output_dir, training=True, episodic_metrics=None
@@ -88,6 +90,15 @@ class POLARISPlotter:
         ):
             self.incentives.plot(metrics, env, args, output_dir)
 
+        # Generate accuracy plots for strategic experimentation
+        if (
+            hasattr(args, "plot_accuracy")
+            and args.plot_accuracy
+            and hasattr(env, "safe_payoff")
+        ):
+            # Use episodic metrics if available for better accuracy calculations
+            accuracy_metrics = episodic_metrics if episodic_metrics else metrics
+            self.accuracy.plot(accuracy_metrics, env, args, output_dir)
 
         print("✅ Visualization plots generated successfully!")
 
