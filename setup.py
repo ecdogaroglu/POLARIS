@@ -1,6 +1,12 @@
 from setuptools import setup, find_packages
 import os
 
+
+class PackageConfigurationError(RuntimeError):
+    """Raised when package configuration cannot be determined."""
+    pass
+
+
 # Read the README file with fallback
 def get_long_description():
     readme_path = "README.md"
@@ -9,26 +15,26 @@ def get_long_description():
             with open(readme_path, "r", encoding="utf-8") as fh:
                 return fh.read()
         except (IOError, OSError) as e:
-            print(f"Warning: Could not read README.md: {e}")
-            return "POLARIS: Partially Observable Learning with Active Reinforcement In Social Environments"
+            raise PackageConfigurationError(f"Could not read README.md: {e}")
     else:
-        print(f"Warning: README.md not found at {readme_path}")
-        return "POLARIS: Partially Observable Learning with Active Reinforcement In Social Environments"
+        raise PackageConfigurationError(f"README.md not found at {readme_path}")
 
 long_description = get_long_description()
 
 # Read version from __init__.py
 def get_version():
     init_file = os.path.join("polaris", "__init__.py")
-    if os.path.exists(init_file):
-        try:
-            with open(init_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.startswith("__version__"):
-                        return line.split("=")[1].strip().strip('"').strip("'")
-        except (IOError, OSError) as e:
-            print(f"Warning: Could not read version from {init_file}: {e}")
-    return "2.0.0"
+    if not os.path.exists(init_file):
+        raise PackageConfigurationError(f"Version file {init_file} not found")
+        
+    try:
+        with open(init_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("__version__"):
+                    return line.split("=")[1].strip().strip('"').strip("'")
+        raise PackageConfigurationError(f"Version string not found in {init_file}")
+    except (IOError, OSError) as e:
+        raise PackageConfigurationError(f"Could not read version from {init_file}: {e}")
 
 setup(
     name="polaris-marl",

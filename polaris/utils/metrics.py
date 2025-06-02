@@ -3,10 +3,7 @@ Metrics collection and processing for POLARIS experiments.
 """
 
 import json
-from pathlib import Path
-
 import numpy as np
-import torch
 
 from ..utils.math import (
     calculate_learning_rate,
@@ -15,6 +12,21 @@ from ..utils.math import (
     calculate_policy_kl_divergence,
 )
 from ..utils.io import make_json_serializable
+
+
+class AllocationFormatError(ValueError):
+    """Raised when allocation format is not supported."""
+    pass
+
+
+class IncompatibleMetricsError(ValueError):
+    """Raised when metrics data is incompatible or missing."""
+    pass
+
+
+class UnknownEnvironmentError(ValueError):
+    """Raised when environment type cannot be determined for theoretical bounds."""
+    pass
 
 
 class MetricsTracker:
@@ -219,7 +231,10 @@ class MetricsTracker:
                 if agent_id in self.metrics["allocations"]:
                     self.metrics["allocations"][agent_id].append(allocations[agent_id])
         else:
-            print(f"Warning: Unsupported allocations format: {type(allocations)}")
+            raise AllocationFormatError(
+                f"Unsupported allocations format: {type(allocations)}. "
+                f"Expected dict, list, or numpy array."
+            )
 
     def _update_policy_means(self, policy_means):
         """Update policy means metrics."""
@@ -327,23 +342,12 @@ class MetricsTracker:
         """Process incorrect probabilities for plotting."""
         agent_incorrect_probs = self.metrics["action_probs"]
 
-        # If action_probs is empty, try to process from incorrect_probs as fallback
-        if not agent_incorrect_probs:
-            print("Warning: Using fallback method to process incorrect probabilities")
-            agent_incorrect_probs = {}
-            for step_idx, step_probs in enumerate(self.metrics["incorrect_probs"]):
-                if isinstance(step_probs, list):
-                    # If we have per-agent probabilities
-                    for agent_id, prob in enumerate(step_probs):
-                        if agent_id not in agent_incorrect_probs:
-                            agent_incorrect_probs[agent_id] = []
-                        agent_incorrect_probs[agent_id].append(prob)
-                else:
-                    # If we only have an average probability
-                    for agent_id in range(self.env.num_agents):
-                        if agent_id not in agent_incorrect_probs:
-                            agent_incorrect_probs[agent_id] = []
-                        agent_incorrect_probs[agent_id].append(step_probs)
+        # Check if action_probs is empty and raise error instead of fallback
+        if not agent_incorrect_probs or not any(agent_incorrect_probs.values()):
+            raise IncompatibleMetricsError(
+                "No action probabilities data available. Cannot process incorrect probabilities. "
+                "Ensure that metrics are properly updated with action probability data."
+            )
 
         return agent_incorrect_probs
 
@@ -361,6 +365,9 @@ class MetricsTracker:
 
     def prepare_for_serialization(self, learning_rates, theoretical_bounds, num_steps):
         """Prepare metrics for JSON serialization."""
+        if not learning_rates:
+            raise IncompatibleMetricsError("No learning rates available for serialization")
+            
         # Find fastest and slowest learning agents
         fastest_agent = max(learning_rates.items(), key=lambda x: x[1])
         slowest_agent = min(learning_rates.items(), key=lambda x: x[1])
@@ -518,8 +525,9 @@ class MetricsTracker:
                 "mpe_bad_state": np.mean(bad_allocations),
             }
         else:
-            # Default empty bounds for unknown environment types
-            print(
-                "Warning: Unknown environment type, cannot calculate theoretical learning rates."
+            # Raise error instead of fallback
+            raise UnknownEnvironmentError(
+                f"Unknown environment type: {type(self.env)}. "
+                f"Environment must implement either 'get_autarky_rate' (Social Learning) "
+                f"or 'get_theoretical_mpe' (Strategic Experimentation) methods."
             )
-            return {}

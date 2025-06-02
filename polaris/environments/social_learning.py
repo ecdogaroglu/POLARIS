@@ -58,6 +58,11 @@ class SocialLearningEnvironment(BaseEnvironment):
         self.mistake_history = []
         self.incorrect_prob_history = []
 
+
+class MissingActionProbabilitiesError(ValueError):
+    """Raised when action probabilities are missing for an agent."""
+    pass
+
     def _generate_signal(self, agent_id: int) -> int:
         """
         Generate a private signal for an agent based on the true state.
@@ -172,9 +177,11 @@ class SocialLearningEnvironment(BaseEnvironment):
                 incorrect_prob = 1.0 - action_probs[agent_id][self.true_state]
                 incorrect_probs.append(incorrect_prob)
             else:
-                # If we don't have probabilities for this agent, use 0.5 as a default
-                print(f"Warning: No action probabilities for agent {agent_id}")
-                incorrect_probs.append(0.5)
+                # Raise error instead of using fallback
+                raise MissingActionProbabilitiesError(
+                    f"No action probabilities provided for agent {agent_id}. "
+                    f"Action probabilities are required for computing incorrect probability metrics."
+                )
 
         # Average incorrect probability across all agents
         avg_incorrect_prob = np.mean(incorrect_probs)

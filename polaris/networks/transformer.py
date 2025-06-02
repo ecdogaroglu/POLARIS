@@ -1,8 +1,17 @@
+"""
+Transformer-based belief processing with normalizing flows for POLARIS.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
 from typing import Tuple
+
+
+class InverseTransformationError(RuntimeError):
+    """Raised when inverse transformation fails due to numerical issues."""
+    pass
 
 
 class CouplingLayer(nn.Module):
@@ -140,10 +149,13 @@ class InvertibleBeliefHead(nn.Module):
         try:
             z_T = torch.linalg.lstsq(W.T, logits_no_bias.T).solution
             z = z_T.T
-        except:
-            # Fallback to pseudoinverse if lstsq fails
-            z = torch.linalg.pinv(W) @ logits_no_bias.T
-            z = z.T
+        except Exception as e:
+            # Raise error instead of fallback to pseudoinverse
+            raise InverseTransformationError(
+                f"Linear system solving failed during inverse belief transformation: {e}. "
+                f"This may indicate numerical instability or singular matrix. "
+                f"Try reducing learning rates or checking belief distribution values."
+            )
         
         # Step 3: Apply inverse coupling layers
         for layer in reversed(self.coupling_layers):

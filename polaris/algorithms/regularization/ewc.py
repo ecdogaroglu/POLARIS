@@ -177,6 +177,16 @@ def calculate_fisher_matrix(
     return fisher_matrices
 
 
+class FisherCalculationError(RuntimeError):
+    """Raised when Fisher information matrix calculation fails."""
+    pass
+
+
+class InvalidFisherMatrixError(ValueError):
+    """Raised when Fisher matrix contains invalid values."""
+    pass
+
+
 def calculate_fisher_from_replay_buffer(
     model: nn.Module,
     replay_buffer,
@@ -198,6 +208,10 @@ def calculate_fisher_from_replay_buffer(
 
     Returns:
         Dictionary mapping parameter names to their Fisher information matrices
+        
+    Raises:
+        FisherCalculationError: When no valid batches can be processed
+        InvalidFisherMatrixError: When Fisher matrices contain invalid values
     """
     # Set model to evaluation mode
     model.eval()
@@ -270,13 +284,21 @@ def calculate_fisher_from_replay_buffer(
             # Add a small constant to avoid zeros in the Fisher matrix
             fisher_matrices[name] += 1e-8
     else:
-        print("Warning: No valid batches for Fisher calculation!")
+        raise FisherCalculationError(
+            f"No valid batches for Fisher calculation! Attempted {attempts} times "
+            f"but could not get any valid gradients. Check replay buffer data and loss function."
+        )
 
     # Check if Fisher matrices contain valid values
+    invalid_matrices = []
     for name, matrix in fisher_matrices.items():
         if torch.isnan(matrix).any() or torch.isinf(matrix).any():
-            print(f"Warning: Fisher matrix for {name} contains NaN or Inf values!")
-            # Replace with small constant
-            fisher_matrices[name] = torch.ones_like(matrix) * 1e-8
+            invalid_matrices.append(name)
+
+    if invalid_matrices:
+        raise InvalidFisherMatrixError(
+            f"Fisher matrices for parameters {invalid_matrices} contain NaN or Inf values. "
+            f"This indicates numerical instability in gradient computation."
+        )
 
     return fisher_matrices

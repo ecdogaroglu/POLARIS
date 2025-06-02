@@ -24,6 +24,16 @@ from ..utils.device import get_best_device
 from ..utils.encoding import encode_observation
 
 
+class ArchitectureMismatchError(ValueError):
+    """Raised when there's a mismatch between saved and current model architectures."""
+    pass
+
+
+class ModelComponentError(RuntimeError):
+    """Raised when model components cannot be loaded due to architecture changes."""
+    pass
+
+
 class POLARISAgent:
     """POLARIS agent for social learning with additional advantage-based Transformer training."""
 
@@ -961,11 +971,6 @@ class POLARISAgent:
         if self.use_si and self.path_integrals_calculated:
             si_loss = self.belief_si.calculate_loss()
             transformer_loss += si_loss
-            if hasattr(self, "si_debug_counter"):
-                if self.si_debug_counter % 100 == 0:
-                    print(
-                        f"Agent {self.agent_id} Belief SI Loss: {si_loss.item():.6f}, Main Loss: {transformer_loss.item():.6f}"
-                    )
 
         # Update Transformer parameters
         self.transformer_optimizer.zero_grad()
@@ -1026,11 +1031,15 @@ class POLARISAgent:
 
     def load(self, path, evaluation_mode=False):
         """
-        Load agent model.
+        Load agent state from a checkpoint file.
 
         Args:
-            path: Path to the saved model
-            evaluation_mode: If True, sets the model to evaluation mode after loading
+            path: Path to the checkpoint file
+            evaluation_mode: Whether to set the model in evaluation mode after loading
+            
+        Raises:
+            ArchitectureMismatchError: When saved model architecture doesn't match current
+            ModelComponentError: When model components cannot be loaded
         """
         checkpoint = torch.load(path, map_location=self.device)
 
@@ -1040,57 +1049,43 @@ class POLARISAgent:
             # Try to load belief processor (may fail if architecture changed from GRU to Transformer)
             self.belief_processor.load_state_dict(checkpoint["belief_processor"])
         except RuntimeError as e:
-            print(
-                f"Warning: Could not load belief processor due to architecture change: {e}"
+            raise ArchitectureMismatchError(
+                f"Could not load belief processor due to architecture change: {e}. "
+                f"The saved model likely uses a different belief processor architecture "
+                f"(e.g., GRU vs Transformer). Please ensure model architectures match."
             )
-            print(
-                "Using the new Transformer belief processor with initialized weights."
-            )
-            print("Attempting to transfer knowledge from GRU to Transformer...")
-            is_gru_to_transformer = True
-
-            # Try to transfer knowledge from GRU to Transformer
-            self._transfer_gru_to_transformer_knowledge(checkpoint)
 
         # Check for architecture mismatch between GNN and encoder-decoder
         use_gnn_in_checkpoint = checkpoint.get("use_gnn", False)
         if use_gnn_in_checkpoint != self.use_gnn:
-            print(
-                f"Warning: Architecture mismatch detected. Saved model uses {'GNN' if use_gnn_in_checkpoint else 'encoder-decoder'} "
-                f"but current agent uses {'GNN' if self.use_gnn else 'encoder-decoder'}."
+            raise ArchitectureMismatchError(
+                f"Architecture mismatch detected. Saved model uses {'GNN' if use_gnn_in_checkpoint else 'encoder-decoder'} "
+                f"but current agent uses {'GNN' if self.use_gnn else 'encoder-decoder'}. "
+                f"Please initialize the agent with use_gnn={use_gnn_in_checkpoint} to match the saved model."
             )
-            print(
-                f"To ensure proper loading, the agent architecture should match the saved model."
-            )
-            print(f"Setting use_gnn={use_gnn_in_checkpoint} to match the saved model.")
-            self.use_gnn = use_gnn_in_checkpoint
 
-        # Load other components that should be compatible
+        # Load core components that should be compatible
         try:
             if self.use_gnn:
-                if "inference_module" in checkpoint:
-                    self.inference_module.load_state_dict(
-                        checkpoint["inference_module"]
+                if "inference_module" not in checkpoint:
+                    raise ModelComponentError(
+                        "Saved model doesn't contain GNN inference module. "
+                        "Cannot load inference module state."
                     )
-                else:
-                    print(
-                        "Warning: Saved model doesn't contain GNN inference module. "
-                        "Unable to load inference module state."
-                    )
+                self.inference_module.load_state_dict(checkpoint["inference_module"])
             else:
-                if "encoder" in checkpoint and "decoder" in checkpoint:
-                    self.encoder.load_state_dict(checkpoint["encoder"])
-                    self.decoder.load_state_dict(checkpoint["decoder"])
-                else:
-                    print(
-                        "Warning: Saved model doesn't contain encoder/decoder. "
-                        "Unable to load inference module state."
+                if "encoder" not in checkpoint or "decoder" not in checkpoint:
+                    raise ModelComponentError(
+                        "Saved model doesn't contain encoder/decoder components. "
+                        "Cannot load inference module state."
                     )
+                self.encoder.load_state_dict(checkpoint["encoder"])
+                self.decoder.load_state_dict(checkpoint["decoder"])
 
             # Always try to load policy network
             self.policy.load_state_dict(checkpoint["policy"])
         except RuntimeError as e:
-            print(f"Warning: Could not load some components: {e}")
+            raise ModelComponentError(f"Could not load core model components: {e}")
 
         # Handle Q-networks
         try:
@@ -1099,15 +1094,17 @@ class POLARISAgent:
             self.target_q_network1.load_state_dict(checkpoint["target_q_network1"])
             self.target_q_network2.load_state_dict(checkpoint["target_q_network2"])
         except RuntimeError as e:
-            print(
-                f"Warning: Could not load Q-networks due to architecture changes: {e}"
+            raise ModelComponentError(
+                f"Could not load Q-networks due to architecture changes: {e}. "
+                f"This indicates a significant architecture change that requires retraining."
             )
-            print("Initializing new Q-networks. You may need to retrain the model.")
 
         try:
             self.gain_parameter.data = checkpoint["gain_parameter"]
-        except:
-            print("Warning: Could not load gain parameter.")
+        except KeyError:
+            raise ModelComponentError("Gain parameter not found in checkpoint")
+        except Exception as e:
+            raise ModelComponentError(f"Could not load gain parameter: {e}")
 
         # Reset internal state after loading
         self.reset_internal_state()
@@ -1119,13 +1116,6 @@ class POLARISAgent:
         else:
             self.set_train_mode()
             print(f"Model set to training mode.")
-
-        # If we transferred from GRU to Transformer, recommend retraining
-        if is_gru_to_transformer:
-            print("Knowledge transfer from GRU to Transformer attempted.")
-            print(
-                "For best performance, you should retrain the model for a few episodes."
-            )
 
     def get_belief_state(self):
         """Return the current belief state.

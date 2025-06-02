@@ -417,6 +417,11 @@ class SILoss:
         self._recompute_consolidated_importance()
 
 
+class PathIntegralCalculationError(RuntimeError):
+    """Raised when path integral calculation fails."""
+    pass
+
+
 def calculate_path_integral(
     model: nn.Module,
     data_loader: torch.utils.data.DataLoader,
@@ -496,6 +501,9 @@ def calculate_path_integral_from_replay_buffer(
         A tuple containing:
         - SILoss tracker instance with accumulated path integrals
         - Dictionary mapping parameter names to their path integrals
+        
+    Raises:
+        PathIntegralCalculationError: When no valid batches can be processed
     """
     # Set model to training mode
     model.train()
@@ -565,6 +573,9 @@ def calculate_path_integral_from_replay_buffer(
     if valid_batches > 0:
         print(f"Calculated path integrals using {valid_batches} valid batches")
     else:
-        print("Warning: No valid batches for path integral calculation!")
+        raise PathIntegralCalculationError(
+            f"No valid batches for path integral calculation! Attempted {attempts} times "
+            f"but could not get any valid gradients. Check replay buffer data and loss function."
+        )
 
     return si_tracker, si_tracker.param_path_integrals

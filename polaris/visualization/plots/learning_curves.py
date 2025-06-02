@@ -283,24 +283,17 @@ class LearningCurvePlotter(MultiAgentPlotter):
 
         Returns:
             Dictionary mapping agent IDs to incorrect probability lists
+            
+        Raises:
+            ValueError: If no action probabilities data is available
         """
         agent_incorrect_probs = metrics.get("action_probs", {})
 
-        # If action_probs is empty, try to process from incorrect_probs as fallback
-        if not agent_incorrect_probs and "incorrect_probs" in metrics:
-            agent_incorrect_probs = {}
-            for step_idx, step_probs in enumerate(metrics["incorrect_probs"]):
-                if isinstance(step_probs, list):
-                    # Multi-agent incorrect probabilities
-                    for agent_id in range(min(len(step_probs), num_agents)):
-                        if agent_id not in agent_incorrect_probs:
-                            agent_incorrect_probs[agent_id] = []
-                        agent_incorrect_probs[agent_id].append(step_probs[agent_id])
-                else:
-                    # Single value for all agents
-                    for agent_id in range(num_agents):
-                        if agent_id not in agent_incorrect_probs:
-                            agent_incorrect_probs[agent_id] = []
-                        agent_incorrect_probs[agent_id].append(step_probs)
+        # Check if action_probs is empty and raise error instead of fallback
+        if not agent_incorrect_probs or not any(agent_incorrect_probs.values()):
+            raise ValueError(
+                "No action probabilities data available for plotting. "
+                "Ensure that metrics are properly updated with action probability data."
+            )
 
         return agent_incorrect_probs

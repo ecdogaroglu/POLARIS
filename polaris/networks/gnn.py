@@ -449,6 +449,16 @@ class QNetwork(nn.Module):
         return q_values
 
 
+class AttentionProcessingError(ValueError):
+    """Raised when attention weights cannot be processed due to format issues."""
+    pass
+
+
+class TemporalMemoryError(RuntimeError):
+    """Raised when temporal memory operations fail due to inconsistent state."""
+    pass
+
+
 class TemporalGNN(nn.Module):
     """Graph Neural Network with Temporal Attention for neighbor action inference."""
 
@@ -766,11 +776,21 @@ class TemporalGNN(nn.Module):
         return x
 
     def _apply_temporal_attention(self):
-        """Apply temporal attention to sequence of GNN outputs."""
-        # Stack temporal sequence of GNN outputs
+        """
+        Apply temporal attention to sequence of GNN outputs.
+        
+        Returns:
+            Tensor: Attended GNN output for the current timestep
+            
+        Note:
+            Empty temporal memory at initialization is expected and handled gracefully.
+            This is not a fallback behavior but proper initialization.
+        """
+        # Handle expected empty case during initialization
         if len(self.temporal_memory["node_features"]) == 0:
-            # If empty, return zero tensor with correct dimensions
-            batch_size = 1  # Default batch size
+            # This is expected during the first forward pass before any memory is accumulated
+            # Return properly shaped zero tensor for initialization
+            batch_size = 1  # Default batch size for initialization
             return torch.zeros(
                 batch_size,
                 self.feature_dim,
@@ -1033,14 +1053,19 @@ class TemporalGNN(nn.Module):
                     attention_weights = attention_weights.reshape(num_edges, self.num_attn_heads)
                     attention_weights = np.mean(attention_weights, axis=1)
                 else:
-                    # Fallback: flatten and take first num_edges elements
-                    attention_weights = attention_weights.flatten()
-                    if len(attention_weights) > edge_index.shape[1]:
-                        attention_weights = attention_weights[:edge_index.shape[1]]
+                    # Raise error instead of fallback
+                    raise AttentionProcessingError(
+                        f"Cannot process attention weights with shape {attention_weights.shape}. "
+                        f"Expected either [num_edges, {self.num_attn_heads}] or [num_edges * {self.num_attn_heads}, 1], "
+                        f"but got incompatible dimensions."
+                    )
                     
             # Ensure edge_index has the right shape
             if edge_index.ndim == 1:
-                return attention_matrix  # Can't process 1D edge index
+                raise AttentionProcessingError(
+                    f"Edge index has incompatible shape {edge_index.shape}. "
+                    f"Expected 2D array with shape [2, num_edges]."
+                )
                 
             # Fill the attention matrix
             for i, (src, tgt) in enumerate(edge_index.T):
@@ -1069,10 +1094,12 @@ class TemporalGNN(nn.Module):
                     
             return attention_matrix
             
+        except AttentionProcessingError:
+            # Re-raise our custom errors
+            raise
         except Exception as e:
-            # If there's any error in processing attention weights, return None
-            print(f"Warning: Could not process attention weights: {e}")
-            return None
+            # Convert any other error to our custom error type
+            raise AttentionProcessingError(f"Could not process attention weights: {e}")
 
     def get_belief_log_prob(self, hidden_features: torch.Tensor) -> torch.Tensor:
         """Get log probability of belief transformation."""

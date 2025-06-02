@@ -4,17 +4,24 @@ I/O and file management utilities for POLARIS.
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import numpy as np
 import torch
+
+
+class ModelLoadingError(FileNotFoundError):
+    """Raised when model loading fails due to missing files or directories."""
+    pass
 
 
 def setup_random_seeds(seed: int, env) -> None:
     """Set random seeds for reproducibility."""
     torch.manual_seed(seed)
     np.random.seed(seed)
-    env.seed(seed)
+    if hasattr(env, "seed"):
+        env.seed(seed)
+    print(f"Random seeds set to {seed}")
 
 
 def create_output_directory(args, env, training: bool) -> Path:
@@ -33,13 +40,16 @@ def load_agent_models(
     agents: Dict, model_path: str, num_agents: int, training: bool = True
 ) -> None:
     """
-    Load pre-trained models if a path is provided.
+    Load pre-trained models for all agents.
 
     Args:
-        agents: Dictionary of agent objects
+        agents: Dictionary of agent objects to load models into
         model_path: Path to the directory containing model files
         num_agents: Number of agents to load models for
         training: Whether the models will be used for training (True) or evaluation (False)
+        
+    Raises:
+        ModelLoadingError: If model directory doesn't exist or no models are found
     """
     # If no model path is provided, skip loading
     if model_path is None:
@@ -48,10 +58,11 @@ def load_agent_models(
 
     model_dir = Path(model_path)
     if not model_dir.exists():
-        print(f"Warning: Model directory {model_dir} does not exist")
-        return
+        raise ModelLoadingError(f"Model directory {model_dir} does not exist")
 
     models_loaded = 0
+    missing_models = []
+    
     for agent_id in range(num_agents):
         model_file = model_dir / f"agent_{agent_id}.pt"
         if model_file.exists():
@@ -60,11 +71,17 @@ def load_agent_models(
             agents[agent_id].load(str(model_file), evaluation_mode=not training)
             models_loaded += 1
         else:
-            print(f"Warning: Model file {model_file} not found")
+            missing_models.append(str(model_file))
 
     if models_loaded == 0:
-        print(
-            f"No model files found in directory {model_dir} for any of the {num_agents} agents"
+        raise ModelLoadingError(
+            f"No model files found in directory {model_dir} for any of the {num_agents} agents. "
+            f"Expected files: {[f'agent_{i}.pt' for i in range(num_agents)]}"
+        )
+    elif missing_models:
+        raise ModelLoadingError(
+            f"Some model files are missing: {missing_models}. "
+            f"Successfully loaded {models_loaded} out of {num_agents} models."
         )
     else:
         print(
