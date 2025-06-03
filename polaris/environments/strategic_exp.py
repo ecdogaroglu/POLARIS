@@ -31,7 +31,7 @@ class StrategicExperimentationEnvironment(BaseEnvironment):
         jump_rates: List[float] = None,
         jump_sizes: List[float] = None,
         background_informativeness: float = 0.1,
-        time_step: float = 0.1,
+        time_step: float = 1,
     ):
         """
         Initialize the strategic experimentation environment.
@@ -223,15 +223,16 @@ class StrategicExperimentationEnvironment(BaseEnvironment):
         drift = (
             self.background_informativeness
             * self.drift_rates[self.true_state]
+            * self.current_step
             * self.time_step
         )
 
         # Diffusion component (Brownian motion)
-        diffusion = self.diffusion_sigma * np.sqrt(self.time_step) * self.rng.normal()
+        diffusion = self.diffusion_sigma * np.sqrt(self.background_informativeness * self.current_step * self.time_step) * self.rng.normal()
 
         # Jump component (compound Poisson process)
         # Determine if jump occurs in this time step
-        jump_prob = self.jump_rates[self.true_state] * self.time_step
+        jump_prob = self.jump_rates[self.true_state] * self.time_step * self.current_step * self.background_informativeness
         jump_occurs = self.rng.random() < jump_prob
         jump = self.jump_sizes[self.true_state] if jump_occurs else 0.0
 

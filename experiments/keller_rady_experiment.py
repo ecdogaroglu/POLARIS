@@ -134,9 +134,9 @@ def create_strategic_config(args) -> ExperimentConfig:
         drift_rates=[0, 1],  # first values for bad state, second for good state
         jump_rates=[0, 0.1],
         jump_sizes=[1.0, 1.0],
-        diffusion_sigma=0.0,
-        background_informativeness=0.1,
-        time_step=1.0,
+        diffusion_sigma=0.1,
+        background_informativeness=0.001,
+        time_step=1.0, # For discrete time steps, this is the time step size
         continuous_actions=True
     )
     
