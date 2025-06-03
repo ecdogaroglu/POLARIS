@@ -28,11 +28,11 @@ def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run Keller-Rady Strategic Experimentation")
     parser.add_argument('--agents', type=int, default=2, help='Number of agents')
-    parser.add_argument('--episodes', type=int, default=40, help='Number of episodes')
-    parser.add_argument('--horizon', type=int, default=100, help='Steps per episode')
+    parser.add_argument('--episodes', type=int, default=10, help='Number of episodes')
+    parser.add_argument('--horizon', type=int, default=1000, help='Steps per episode')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--output', type=str, default='results', help='Output directory')
-    parser.add_argument('--eval', action='store_true', help='Evaluation mode')
+    parser.add_argument('--eval', action='store_true', default=False, help='Evaluation mode')
     parser.add_argument('--load', type=str, default=None, help='Path to load models')
     parser.add_argument('--use-si', action='store_true', default=True, help='Use Synaptic Intelligence')
     parser.add_argument('--si-importance', type=float, default=10.0, help='SI importance weight')
@@ -44,6 +44,7 @@ def main():
     parser.add_argument('--latex-style', action='store_true', default=True, help='Use LaTeX styling')
     parser.add_argument('--device', type=str, default="cpu", choices=['cpu', 'mps', 'cuda'], 
                        help='Device to use')
+    parser.add_argument('--update-interval', type=int, default=1, help='Update interval')
     args = parser.parse_args()
     
     # Set initial random seeds

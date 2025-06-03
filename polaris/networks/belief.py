@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-from typing import Tuple
+from typing import Tuple, List
 
 
 class InverseTransformationError(RuntimeError):
@@ -93,14 +93,15 @@ class InvertibleBeliefHead(nn.Module):
             for mask in self.masks
         ])
         
-        # Final projection to belief space
-        self.belief_projection = nn.Linear(hidden_dim, num_belief_states)
+        # Separate projections for continuous and discrete cases
+        self.discrete_belief_projection = nn.Linear(hidden_dim, num_belief_states)
+        self.continuous_belief_projection = nn.Linear(hidden_dim, 1)  # 1D for continuous signals
         
         # Base distribution (standard normal)
         self.register_buffer('base_loc', torch.zeros(hidden_dim))
         self.register_buffer('base_scale', torch.ones(hidden_dim))
         
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, is_continuous: bool = False) -> torch.Tensor:
         """Transform hidden representation to belief distribution."""
         batch_size = x.size(0)
         
@@ -112,9 +113,18 @@ class InvertibleBeliefHead(nn.Module):
             z, log_det = layer(z, reverse=False)
             total_log_det += log_det
         
-        # Project to belief space and apply softmax
-        belief_logits = self.belief_projection(z)
-        belief_distribution = F.softmax(belief_logits, dim=-1)
+        # Project to belief space using appropriate projection layer
+        if is_continuous:
+            belief_logits = self.continuous_belief_projection(z)
+        else:
+            belief_logits = self.discrete_belief_projection(z)
+        
+        if is_continuous:
+            # For continuous signals, use sigmoid to output signal values in [0,1] range
+            belief_distribution = torch.sigmoid(belief_logits)
+        else:
+            # For discrete signals, use softmax to output probability distributions
+            belief_distribution = F.softmax(belief_logits, dim=-1)
         
         return belief_distribution
     
@@ -124,24 +134,29 @@ class InvertibleBeliefHead(nn.Module):
         eps = 1e-8
         belief_clamped = torch.clamp(belief_distribution, eps, 1 - eps)
         
-        # Convert belief distribution back to logits
-        # Since forward does: logits = self.belief_projection(z), then softmax(logits)
-        # We need to invert this process
+        # Determine if this is continuous or discrete based on output dimensions
+        is_continuous = belief_distribution.size(-1) == 1
         
-        # Step 1: Convert from probability to logits (inverse of softmax)
-        # Use the log-sum-exp trick for numerical stability
-        belief_logits = torch.log(belief_clamped)
+        # Convert belief distribution back to logits
+        if is_continuous:
+            # For continuous signals: inverse of sigmoid
+            belief_logits = torch.logit(belief_clamped)
+            projection_layer = self.continuous_belief_projection
+        else:
+            # For discrete signals: inverse of softmax
+            belief_logits = torch.log(belief_clamped)
+            projection_layer = self.discrete_belief_projection
         
         # Step 2: Invert the linear projection
         # Since logits = W @ z + b, we need to solve for z
-        # For an over-determined system (hidden_dim > num_belief_states), we use least squares
+        # For an over-determined system (hidden_dim > output_dim), we use least squares
         
         # Remove bias first: logits_no_bias = logits - bias
-        logits_no_bias = belief_logits - self.belief_projection.bias.unsqueeze(0)
+        logits_no_bias = belief_logits - projection_layer.bias.unsqueeze(0)
         
         # Solve: W @ z = logits_no_bias for z
         # z = W^T @ (W @ W^T)^(-1) @ logits_no_bias (Moore-Penrose pseudoinverse)
-        W = self.belief_projection.weight  # [num_belief_states, hidden_dim]
+        W = projection_layer.weight  # [output_dim, hidden_dim]
         
         # Use torch.linalg.lstsq for numerical stability
         # We want to solve W @ z.T = logits_no_bias.T for z.T
@@ -277,15 +292,16 @@ class TransformerBeliefProcessor(nn.Module):
         output = self.transformer_encoder(sequence)
         new_belief = output[:, -1:, :].transpose(0, 1)
 
-        # Get belief distribution using invertible head
+        # Get belief distribution using different approaches for continuous vs discrete signals
         hidden_features = new_belief.squeeze(0)
         
         if is_continuous:
-            # For continuous signals, take only the first component
-            belief_distribution = self.belief_head(hidden_features)
-            belief_distribution = belief_distribution[:, :1]
+            # For continuous signals (strategic experimentation), use the belief head with continuous mode
+            belief_distribution = self.belief_head(hidden_features, is_continuous=True)
+            belief_distribution = belief_distribution[:, :1]  # Take only first component
         else:
-            belief_distribution = self.belief_head(hidden_features)
+            # For discrete signals, use the full invertible head with softmax
+            belief_distribution = self.belief_head(hidden_features, is_continuous=False)
 
         return self.standardize_belief_state(new_belief), belief_distribution
 
@@ -296,3 +312,147 @@ class TransformerBeliefProcessor(nn.Module):
     def inverse_belief_transform(self, belief_distribution: torch.Tensor) -> torch.Tensor:
         """Inverse transform from belief distribution to hidden features."""
         return self.belief_head.inverse(belief_distribution)
+    
+    def calculate_expected_signal(
+        self, 
+        belief_distribution: torch.Tensor,
+        drift_rates: List[float],
+        jump_rates: List[float], 
+        jump_sizes: List[float],
+        background_informativeness: float,
+        time_step: float
+    ) -> torch.Tensor:
+        """
+        Calculate expected signal increment under the current belief distribution.
+        
+        For strategic experimentation, the signal follows:
+        signal_increment = background_informativeness * drift_rate * time_step + diffusion + jump
+        
+        Since we're dealing with expectations and diffusion has zero mean, we focus on:
+        E[signal_increment] = background_informativeness * drift_rate * time_step + E[jump]
+        where E[jump] = jump_rate * time_step * jump_size
+
+        Only for continuous case.
+        
+        Args:
+            belief_distribution: Current belief probabilities [batch_size, num_states] or [batch_size, 1] for continuous
+            drift_rates: Drift rates for each state [bad_state, good_state]
+            jump_rates: Jump rates for each state [bad_state, good_state] 
+            jump_sizes: Jump sizes for each state [bad_state, good_state]
+            background_informativeness: Informativeness parameter
+            time_step: Time step size
+            
+        Returns:
+            expected_signal: Expected signal increment [batch_size, 1]
+        """
+        device = belief_distribution.device
+        batch_size = belief_distribution.size(0)
+        
+        # Check if this is continuous (1D) or discrete (2D) belief distribution
+        is_continuous = belief_distribution.size(-1) == 1
+        
+        # For continuous case, belief_distribution represents the probability of good state
+        belief_good = belief_distribution.squeeze(-1)  # [batch_size]
+        belief_bad = 1.0 - belief_good
+
+        
+        # Convert to tensors
+        drift_rates_tensor = torch.tensor(drift_rates, device=device, dtype=torch.float32)
+        jump_rates_tensor = torch.tensor(jump_rates, device=device, dtype=torch.float32)
+        jump_sizes_tensor = torch.tensor(jump_sizes, device=device, dtype=torch.float32)
+        
+        # Calculate expected signals for each state
+        # State 0 (bad): drift_rates[0], jump_rates[0], jump_sizes[0]
+        # State 1 (good): drift_rates[1], jump_rates[1], jump_sizes[1]
+        
+        expected_signal_bad = (
+            background_informativeness * drift_rates_tensor[0] * time_step +
+            jump_rates_tensor[0] * time_step * jump_sizes_tensor[0]
+        )
+        
+        expected_signal_good = (
+            background_informativeness * drift_rates_tensor[1] * time_step +
+            jump_rates_tensor[1] * time_step * jump_sizes_tensor[1]
+        )
+        
+        # Weighted average based on belief distribution
+        expected_signal = (
+            belief_bad * expected_signal_bad + 
+            belief_good * expected_signal_good
+        )
+        
+        return expected_signal.unsqueeze(-1)  # [batch_size, 1]
+    
+    def belief_signal_loss(
+        self,
+        belief_distribution: torch.Tensor,
+        actual_signal: torch.Tensor,
+        drift_rates: List[float],
+        jump_rates: List[float],
+        jump_sizes: List[float], 
+        background_informativeness: float,
+        time_step: float
+    ) -> torch.Tensor:
+        """
+        Calculate adaptive loss between expected signal under belief and actual received signal.
+        
+        This implements a principled belief update mechanism with enhanced responsiveness to state changes.
+        Uses higher penalties when beliefs strongly contradict observed signals.
+        
+        Args:
+            belief_distribution: Current belief probabilities
+            actual_signal: Actually received signal increment
+            drift_rates: Drift rates for each state
+            jump_rates: Jump rates for each state
+            jump_sizes: Jump sizes for each state
+            background_informativeness: Informativeness parameter
+            time_step: Time step size
+            
+        Returns:
+            loss: Adaptive loss between expected and actual signal
+        """
+        # Calculate expected signal under current belief
+        expected_signal = self.calculate_expected_signal(
+            belief_distribution,
+            drift_rates,
+            jump_rates,
+            jump_sizes,
+            background_informativeness,
+            time_step
+        )
+        
+        # Ensure actual_signal has the right shape
+        if actual_signal.dim() == 1:
+            actual_signal = actual_signal.unsqueeze(-1)
+        
+        # Calculate base MSE loss
+        signal_error = expected_signal - actual_signal
+        base_loss = F.mse_loss(expected_signal, actual_signal)
+        
+        # Add adaptive penalty for large contradictions
+        # When belief is high (>0.5) but signal is very low (<0.01), or vice versa
+        belief_good = belief_distribution.squeeze(-1)  # [batch_size]
+        actual_signal_flat = actual_signal.squeeze(-1)  # [batch_size]
+        
+        # Detect contradictions:
+        # 1. High belief (>0.5) but very low signal (<0.01)
+        # 2. Low belief (<0.1) but high signal (>0.1)
+        contradiction_penalty = torch.zeros_like(base_loss)
+        
+        high_belief_low_signal = (belief_good > 0.5) & (actual_signal_flat < 0.01)
+        low_belief_high_signal = (belief_good < 0.1) & (actual_signal_flat > 0.1)
+        
+        if high_belief_low_signal.any():
+            # Strong penalty when believing in good state but receiving zero signals
+            penalty = 10.0 * belief_good[high_belief_low_signal].pow(2)
+            contradiction_penalty = contradiction_penalty + penalty.mean()
+        
+        if low_belief_high_signal.any():
+            # Strong penalty when believing in bad state but receiving positive signals
+            penalty = 10.0 * (1.0 - belief_good[low_belief_high_signal]).pow(2)
+            contradiction_penalty = contradiction_penalty + penalty.mean()
+        
+        # Total loss combines base MSE with contradiction penalty
+        total_loss = base_loss + contradiction_penalty
+        
+        return total_loss

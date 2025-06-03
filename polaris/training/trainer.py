@@ -980,6 +980,17 @@ class Trainer:
 
             agents[agent_id] = agent
 
+        # Set environment parameters for strategic experimentation
+        if hasattr(self.env, "safe_payoff"):  # Strategic experimentation environment
+            for agent_id, agent in agents.items():
+                agent.set_environment_parameters(
+                    drift_rates=self.env.drift_rates,
+                    jump_rates=self.env.jump_rates, 
+                    jump_sizes=self.env.jump_sizes,
+                    background_informativeness=self.env.background_informativeness,
+                    time_step=self.env.time_step
+                )
+
         return agents
 
     def _initialize_replay_buffers(self, obs_dim):

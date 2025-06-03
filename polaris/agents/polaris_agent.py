@@ -326,6 +326,34 @@ class POLARISAgent:
             # Add counter for debugging
             self.si_debug_counter = 0
 
+            # Environment parameters (for belief signal loss calculation)
+            self.env_params = {
+                'drift_rates': [0, 1],  # Default values, will be updated when set
+                'jump_rates': [0, 0.1],
+                'jump_sizes': [1.0, 1.0],
+                'background_informativeness': 0.1,
+                'time_step': 1.0
+            }
+
+    def set_environment_parameters(self, drift_rates, jump_rates, jump_sizes, background_informativeness, time_step):
+        """
+        Set environment parameters for belief signal loss calculation.
+        
+        Args:
+            drift_rates: List of drift rates for each state
+            jump_rates: List of jump rates for each state
+            jump_sizes: List of jump sizes for each state
+            background_informativeness: Background informativeness parameter
+            time_step: Time step size
+        """
+        self.env_params = {
+            'drift_rates': drift_rates,
+            'jump_rates': jump_rates,
+            'jump_sizes': jump_sizes,
+            'background_informativeness': background_informativeness,
+            'time_step': time_step
+        }
+
     def observe(self, signal, neighbor_actions):
         """Update belief state based on new observation."""
         # Check if this is the first observation of the episode
@@ -907,7 +935,7 @@ class POLARISAgent:
 
     def _update_transformer(self, signals, neighbor_actions, beliefs, next_signals):
         """
-        Update belief processor (Transformer) by optimizing for next state prediction.
+        Update belief processor (Transformer) using the principled belief signal loss.
 
         Args:
             signals: Current signals/observations
@@ -916,20 +944,37 @@ class POLARISAgent:
             next_signals: Next signals/observations
 
         Returns:
-            float: Loss value
+            Tuple[float, float]: (transformer_loss, si_loss)
         """
-        # Process current signals through Transformer to get next belief (ignoring neighbor_actions)
+        # Process current signals through Transformer to get belief distributions
         _, belief_distributions = self.belief_processor(signals, current_belief=beliefs)
 
         # Detect if signal is continuous (1-dimensional) or discrete (one-hot encoded)
         is_continuous_signal = next_signals.size(1) == 1
 
-        # The belief distribution should predict the next observation (signal)
         if is_continuous_signal:
-            # For continuous signals, we use MSE loss directly on the raw values
-            transformer_loss = F.mse_loss(
-                belief_distributions, next_signals, reduction="mean"
+            # For continuous signals (strategic experimentation), use the principled belief signal loss
+            # We need environment parameters for this
+            # TODO: These should be passed from the environment or stored in the agent
+            # For now, use the standard strategic experimentation parameters
+            drift_rates = self.env_params['drift_rates']
+            jump_rates = self.env_params['jump_rates']
+            jump_sizes = self.env_params['jump_sizes']
+            background_informativeness = self.env_params['background_informativeness']
+            time_step = self.env_params['time_step']
+            
+            transformer_loss = self.belief_processor.belief_signal_loss(
+                belief_distributions,
+                next_signals,
+                drift_rates,
+                jump_rates,
+                jump_sizes,
+                background_informativeness,
+                time_step
             )
+            print(f"Transformer loss: {transformer_loss.item()}")
+            print(f"Next signals: {next_signals.mean().item()}")
+            print(f"Belief distributions: {belief_distributions.mean().item()}")
         else:
             # For discrete signals, use binary cross entropy
             transformer_loss = (
