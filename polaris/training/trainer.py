@@ -302,6 +302,10 @@ class Trainer:
         observations = self.env.initialize()
         total_rewards = np.zeros(self.env.num_agents)
 
+        # Initialize agents and components
+        obs_dim = calculate_observation_dimension(self.env)
+        self.agents = self._initialize_agents(obs_dim)
+
         # Print environment state information
         self._print_environment_info()
 
@@ -335,6 +339,7 @@ class Trainer:
                 actions, action_probs
             )
 
+
             # Add policy distribution parameters to info
             if policy_info:
                 info.update(policy_info)
@@ -358,14 +363,25 @@ class Trainer:
             # Update observations for next step
             observations = next_observations
 
-            # For continuous actions in Strategic Experimentation env, add allocations to info
-            if (
-                hasattr(self.args, "continuous_actions")
-                and self.args.continuous_actions
-                and hasattr(self.env, "safe_payoff")
-            ):
-                if "allocations" not in info:
-                    info["allocations"] = actions
+            # For Strategic Experimentation environment, add allocations to info
+            if hasattr(self.env, "safe_payoff"):  # Strategic experimentation environment
+                if (hasattr(self.args, "continuous_actions") and self.args.continuous_actions):
+                    # For continuous actions, use the actions directly (allocation values)
+                    # Only set if not already provided by environment
+                    if "allocations" not in info:
+                        info["allocations"] = actions
+                else:
+                    # For discrete actions, ALWAYS use action 1 probability as allocation to risky arm
+                    # This overwrites the environment's allocation which uses discrete actions
+                    allocations = {}
+                    for agent_id, probs in action_probs.items():
+                        if len(probs) >= 2:  # Ensure we have at least 2 actions (action 0 and action 1)
+                            # Use probability of action 1 as allocation to risky arm
+                            allocations[agent_id] = float(probs[1])
+                        else:
+                            # Fallback: use 0.5 if probabilities are malformed
+                            allocations[agent_id] = 0.5
+                    info["allocations"] = allocations
 
             # Store and process metrics
             self.metrics_tracker.update(info, actions, action_probs)
@@ -613,11 +629,56 @@ class Trainer:
     def _collect_policy_information(self, training=True):
         """Collect policy information during simulation."""
         policy_info = {}
+        agent_beliefs = {}
+
+        # Always collect agent beliefs for strategic experimentation environment
+        # This is needed for belief accuracy plots regardless of action type
+        if hasattr(self.env, "safe_payoff"):  # Strategic experimentation environment
+            for agent_id, agent in self.agents.items():
+                # Extract agent's belief about the state
+                if (
+                    hasattr(agent, "current_belief_distribution")
+                    and agent.current_belief_distribution is not None
+                ):
+                    # Check if belief distribution is valid (not NaN)
+                    if torch.isnan(agent.current_belief_distribution).any():
+                        # Raise error instead of using fallback default value
+                        raise InvalidBeliefDistributionError(
+                            f"Agent {agent_id} has NaN values in belief distribution. "
+                            f"This indicates numerical instability in the belief processor. "
+                            f"Check learning rates, network initialization, or input preprocessing."
+                        )
+                    else:
+                        # For continuous signals, the belief is directly used
+                        if agent.current_belief_distribution.size(1) == 1:
+                            # Continuous case - map the value to [0,1] range
+                            raw_value = agent.current_belief_distribution[
+                                0, 0
+                            ].item()
+                            # Clip to ensure it's in [0,1] range
+                            agent_beliefs[agent_id] = max(0.0, min(1.0, raw_value))
+                        # For binary state (common case), the belief about good state is the probability assigned to state 1
+                        elif agent.current_belief_distribution.shape[-1] == 2:
+                            agent_beliefs[agent_id] = (
+                                agent.current_belief_distribution[0, 1].item()
+                            )
+                        else:
+                            # For multi-state cases, use a weighted average
+                            belief_weights = torch.arange(
+                                agent.current_belief_distribution.shape[-1],
+                                device=agent.current_belief_distribution.device,
+                            ).float()
+                            belief_weights = belief_weights / (
+                                agent.current_belief_distribution.shape[-1] - 1
+                            )  # Normalize to [0,1]
+                            agent_beliefs[agent_id] = torch.sum(
+                                agent.current_belief_distribution * belief_weights,
+                                dim=-1,
+                            ).item()
 
         if hasattr(self.args, "continuous_actions") and self.args.continuous_actions:
             policy_means = []
             policy_stds = []
-            agent_beliefs = {}
 
             for agent_id, agent in self.agents.items():
                 if hasattr(agent, "continuous_actions") and agent.continuous_actions and hasattr(agent.policy, "forward"):
@@ -631,50 +692,14 @@ class Trainer:
                     policy_means.append(allocation.item())
                     policy_stds.append(0.0)  # No std for deterministic policy
 
-                    # Extract agent's belief about the state
-                    if (
-                        hasattr(agent, "current_belief_distribution")
-                        and agent.current_belief_distribution is not None
-                    ):
-                        # Check if belief distribution is valid (not NaN)
-                        if torch.isnan(agent.current_belief_distribution).any():
-                            # Raise error instead of using fallback default value
-                            raise InvalidBeliefDistributionError(
-                                f"Agent {agent_id} has NaN values in belief distribution. "
-                                f"This indicates numerical instability in the belief processor. "
-                                f"Check learning rates, network initialization, or input preprocessing."
-                            )
-                        else:
-                            # For continuous signals, the belief is directly used
-                            if agent.current_belief_distribution.size(1) == 1:
-                                # Continuous case - map the value to [0,1] range
-                                raw_value = agent.current_belief_distribution[
-                                    0, 0
-                                ].item()
-                                # Clip to ensure it's in [0,1] range
-                                agent_beliefs[agent_id] = max(0.0, min(1.0, raw_value))
-                            # For binary state (common case), the belief about good state is the probability assigned to state 1
-                            elif agent.current_belief_distribution.shape[-1] == 2:
-                                agent_beliefs[agent_id] = (
-                                    agent.current_belief_distribution[0, 1].item()
-                                )
-                            else:
-                                # For multi-state cases, use a weighted average
-                                belief_weights = torch.arange(
-                                    agent.current_belief_distribution.shape[-1],
-                                    device=agent.current_belief_distribution.device,
-                                ).float()
-                                belief_weights = belief_weights / (
-                                    agent.current_belief_distribution.shape[-1] - 1
-                                )  # Normalize to [0,1]
-                                agent_beliefs[agent_id] = torch.sum(
-                                    agent.current_belief_distribution * belief_weights,
-                                    dim=-1,
-                                ).item()
-
             policy_info = {
                 "policy_means": policy_means,
                 "policy_stds": policy_stds,
+                "agent_beliefs": agent_beliefs,
+            }
+        else:
+            # For discrete actions, only include agent beliefs
+            policy_info = {
                 "agent_beliefs": agent_beliefs,
             }
 
@@ -790,7 +815,7 @@ class Trainer:
                 continuous_actions=continuous_actions,
                 continuous_signal=continuous_signal,
             )
-            next_signal_encoded, _ = encode_observation(
+            next_signal_encoded, next_actions_encoded = encode_observation(
                 signal=next_signal,
                 neighbor_actions=next_neighbor_actions,
                 num_agents=self.env.num_agents,
@@ -871,6 +896,7 @@ class Trainer:
                     action_to_store,
                     reward_value,
                     next_signal_encoded,
+                    next_actions_encoded,
                     next_belief,
                     next_latent,
                     mean,

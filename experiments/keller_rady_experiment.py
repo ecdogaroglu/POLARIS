@@ -79,7 +79,12 @@ def main():
     print(f"Drift rates: {config.environment.drift_rates}")
     print(f"Jump rates: {config.environment.jump_rates}")
     print(f"Background informativeness: {config.environment.background_informativeness}")
-    print(f"Using continuous action space for resource allocation")
+    
+    # Print action space type
+    if config.environment.continuous_actions:
+        print(f"Using continuous action space for resource allocation")
+    else:
+        print(f"Using discrete action space (action 1 probability mapped to risky arm allocation)")
     
     # Print learning method
     if config.agent.discount_factor == 0.0:
@@ -109,7 +114,7 @@ def create_strategic_config(args) -> ExperimentConfig:
     """Create experiment configuration for strategic experimentation."""
     # Agent configuration
     agent_config = AgentConfig(
-        learning_rate=1e-3,
+        learning_rate=1e-4,
         discount_factor=0.0,  # Use average reward for strategic experimentation
         use_si=args.use_si,
         si_importance=args.si_importance,
@@ -137,7 +142,7 @@ def create_strategic_config(args) -> ExperimentConfig:
         diffusion_sigma=0.1,
         background_informativeness=0.001,
         time_step=1.0, # For discrete time steps, this is the time step size
-        continuous_actions=True
+        continuous_actions=False
     )
     
     # Experiment name (GNN is always used now, so no need for _gnn suffix)
@@ -160,7 +165,7 @@ def create_strategic_config(args) -> ExperimentConfig:
         plot_allocations=args.plot_allocations,
         plot_incentives=args.plot_incentives,
         plot_accuracy=args.plot_accuracy,
-        plot_cf_diagnostics=args.plot_cf_diagnostics or (not args.no_plot_cf_diagnostics),
+        plot_cf_diagnostics=args.plot_cf_diagnostics,
         latex_style=args.latex_style,
         use_tex=False  # Avoid LaTeX rendering issues, use LaTeX-like styling instead
     )

@@ -113,19 +113,21 @@ class MetricsTracker:
 
         # Add strategic experimentation specific metrics if applicable
         if hasattr(self.env, "safe_payoff"):
-            # Add allocation tracking for continuous actions
-            # Check if environment uses continuous actions by looking at action_space_type
+            # Add allocation tracking for strategic experimentation environments
+            # Support both continuous and discrete actions
+            metrics["allocations"] = {
+                agent_id: [] for agent_id in range(self.env.num_agents)
+            }
+            metrics["mpe_allocations"] = {
+                agent_id: [] for agent_id in range(self.env.num_agents)
+            }
+            
+            # Add policy tracking metrics (used for continuous actions)
             is_continuous = (
                 hasattr(self.env, "action_space_type") and self.env.action_space_type == "continuous"
             ) or (hasattr(self.args, "continuous_actions") and self.args.continuous_actions)
             
             if is_continuous:
-                metrics["allocations"] = {
-                    agent_id: [] for agent_id in range(self.env.num_agents)
-                }
-                metrics["mpe_allocations"] = {
-                    agent_id: [] for agent_id in range(self.env.num_agents)
-                }
                 # Add KL divergence tracking for policy convergence
                 metrics["policy_kl_divergence"] = {
                     agent_id: [] for agent_id in range(self.env.num_agents)
@@ -136,10 +138,11 @@ class MetricsTracker:
                 metrics["policy_stds"] = {
                     agent_id: [] for agent_id in range(self.env.num_agents)
                 }
-                # Add incentive tracking
-                metrics["agent_incentives"] = {
-                    agent_id: [] for agent_id in range(self.env.num_agents)
-                }
+            
+            # Add incentive tracking (applies to both continuous and discrete)
+            metrics["agent_incentives"] = {
+                agent_id: [] for agent_id in range(self.env.num_agents)
+            }
 
         metrics["belief_distributions"] = {
             agent_id: [] for agent_id in range(self.env.num_agents)

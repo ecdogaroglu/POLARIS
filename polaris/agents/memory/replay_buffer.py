@@ -40,6 +40,7 @@ class ReplayBuffer:
         action,
         reward,
         next_signal,
+        next_neighbor_actions,
         next_belief,
         next_latent,
         mean=None,
@@ -54,6 +55,7 @@ class ReplayBuffer:
             action,
             reward,
             next_signal,
+            next_neighbor_actions,
             next_belief,
             next_latent,
             mean,
@@ -156,6 +158,7 @@ class ReplayBuffer:
             actions,
             rewards,
             next_signals,
+            next_neighbor_actions,
             next_beliefs,
             next_latents,
             means,
@@ -180,6 +183,15 @@ class ReplayBuffer:
                 neighbor_actions_list.append(torch.tensor([na], dtype=torch.float32))
             else:
                 neighbor_actions_list.append(na)
+
+        next_neighbor_actions_list = []
+        for nna in next_neighbor_actions:
+            if isinstance(nna, torch.Tensor):
+                next_neighbor_actions_list.append(nna.detach())
+            elif isinstance(nna, (int, float)):
+                next_neighbor_actions_list.append(torch.tensor([nna], dtype=torch.float32))
+            else:
+                next_neighbor_actions_list.append(nna)
 
         # Process belief states to ensure consistent shape [1, batch_size, hidden_dim]
         beliefs_list = []
@@ -258,6 +270,7 @@ class ReplayBuffer:
             # Stack tensors with consistent shapes
             signals = torch.stack(signals_list).to(self.device)
             neighbor_actions = torch.stack(neighbor_actions_list).to(self.device)
+            next_neighbor_actions = torch.stack(next_neighbor_actions_list).to(self.device)
             beliefs = torch.cat([b.view(1, 1, -1) for b in beliefs_list], dim=1).to(
                 self.device
             )  # Ensure consistent shape
@@ -322,6 +335,7 @@ class ReplayBuffer:
                 actions,
                 rewards,
                 next_signals,
+                next_neighbor_actions,
                 next_beliefs,
                 next_latents,
                 means,

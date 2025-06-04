@@ -222,7 +222,7 @@ class AccuracyPlotter(MultiAgentPlotter):
         episodic_accuracies = []
         
         # Check if we have episodic data structure
-        if "episodes" in metrics and isinstance(metrics["episodes"], list):
+        if "episodes" in metrics and isinstance(metrics["episodes"], list) and len(metrics["episodes"]) > 0:
             # Multi-episode structure
             for episode_data in metrics["episodes"]:
                 episode_accuracies = {}
@@ -250,7 +250,7 @@ class AccuracyPlotter(MultiAgentPlotter):
                 if episode_accuracies:
                     episodic_accuracies.append(episode_accuracies)
         else:
-            # Single episode structure (fallback)
+            # Single episode structure (fallback) or flat aggregated structure
             episode_accuracies = {}
             
             if "agent_beliefs" in metrics and "true_states" in metrics:
@@ -285,7 +285,7 @@ class AccuracyPlotter(MultiAgentPlotter):
         episodic_accuracies = []
         
         # Check if we have episodic data structure
-        if "episodes" in metrics and isinstance(metrics["episodes"], list):
+        if "episodes" in metrics and isinstance(metrics["episodes"], list) and len(metrics["episodes"]) > 0:
             # Multi-episode structure
             for episode_data in metrics["episodes"]:
                 episode_accuracies = {}
@@ -313,7 +313,7 @@ class AccuracyPlotter(MultiAgentPlotter):
                 if episode_accuracies:
                     episodic_accuracies.append(episode_accuracies)
         else:
-            # Single episode structure (fallback)
+            # Single episode structure (fallback) or flat aggregated structure
             episode_accuracies = {}
             
             if "allocations" in metrics and "true_states" in metrics:

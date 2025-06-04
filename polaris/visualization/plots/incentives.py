@@ -198,6 +198,17 @@ class IncentivePlotter(MultiAgentPlotter):
         # Get environment parameters
         k0 = env.background_informativeness
         n = env.num_agents
+        
+        # Find the maximum timesteps length to use for fill_between
+        max_timesteps = 0
+        for agent_incentives in metrics["agent_incentives"].values():
+            if len(agent_incentives) > max_timesteps:
+                max_timesteps = len(agent_incentives)
+        
+        # If no agent has incentives, return early
+        if max_timesteps == 0:
+            print("No incentive data found for any agent")
+            return
 
         # Plot incentive thresholds
         ax.axhline(y=k0, color="red", linestyle="--", linewidth=2, 
@@ -233,15 +244,15 @@ class IncentivePlotter(MultiAgentPlotter):
         y_min, y_max = ax.get_ylim()
         
         # No experimentation region (I ≤ k₀)
-        ax.fill_between([0, len(timesteps)], y_min, k0, alpha=0.1, color="red", 
+        ax.fill_between([0, max_timesteps], y_min, k0, alpha=0.1, color="red", 
                        label="No experimentation")
         
         # Partial experimentation region (k₀ < I < k₀ + n - 1)
-        ax.fill_between([0, len(timesteps)], k0, k0 + n - 1, alpha=0.1, color="yellow",
+        ax.fill_between([0, max_timesteps], k0, k0 + n - 1, alpha=0.1, color="yellow",
                        label="Partial experimentation")
         
         # Full experimentation region (I ≥ k₀ + n - 1)
-        ax.fill_between([0, len(timesteps)], k0 + n - 1, y_max, alpha=0.1, color="green",
+        ax.fill_between([0, max_timesteps], k0 + n - 1, y_max, alpha=0.1, color="green",
                        label="Full experimentation")
 
         # Formatting

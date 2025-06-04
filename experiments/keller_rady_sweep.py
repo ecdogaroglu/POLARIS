@@ -30,11 +30,11 @@ RESULTS_DIR = Path("results/strategic_experimentation/sweep_allocations")
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def run_experiment_for_agents(num_agents, episodes, horizon, seed=0, device='cpu'):
+def run_experiment_for_agents(num_agents, episodes, horizon, seed=0, device='cpu', continuous_actions=True):
     """Run the Keller-Rady experiment for a given number of agents and return allocation data for all episodes."""
     
     # Create configuration
-    config = create_sweep_config(num_agents, episodes, horizon, seed, device)
+    config = create_sweep_config(num_agents, episodes, horizon, seed, device, continuous_actions)
     
     # Create environment
     env = StrategicExperimentationEnvironment(
@@ -84,7 +84,7 @@ def run_experiment_for_agents(num_agents, episodes, horizon, seed=0, device='cpu
     return np.stack(episode_allocations, axis=0)
 
 
-def create_sweep_config(num_agents, episodes, horizon, seed, device='cpu') -> ExperimentConfig:
+def create_sweep_config(num_agents, episodes, horizon, seed, device='cpu', continuous_actions=True) -> ExperimentConfig:
     """Create experiment configuration for the sweep."""
     # Agent configuration
     agent_config = AgentConfig(
@@ -116,7 +116,7 @@ def create_sweep_config(num_agents, episodes, horizon, seed, device='cpu') -> Ex
         diffusion_sigma=0.0,
         background_informativeness=0.0,
         time_step=1.0,
-        continuous_actions=True
+        continuous_actions=continuous_actions
     )
     
     # Experiment name
@@ -152,6 +152,8 @@ def main():
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
     parser.add_argument('--device', type=str, default='cpu', choices=['cpu', 'mps', 'cuda'], 
                        help='Force specific device (cpu is default to avoid device switching issues)')
+    parser.add_argument('--continuous-actions', action='store_true', default=False,
+                       help='Use continuous actions (default: discrete actions with action 1 prob as allocation)')
     
     args = parser.parse_args()
     
@@ -170,6 +172,12 @@ def main():
     print(f"Horizon: {args.horizon}")
     print(f"Device: {args.device}")
     
+    # Print action space type
+    if args.continuous_actions:
+        print(f"Using continuous action space for resource allocation")
+    else:
+        print(f"Using discrete action space (action 1 probability mapped to risky arm allocation)")
+    
     all_results = {}
     all_cis = {}
     
@@ -177,7 +185,9 @@ def main():
         print(f"\n=== Running for {num_agents} agents ===")
         
         # Run experiment
-        alloc_arrs = run_experiment_for_agents(num_agents, args.episodes, args.horizon, seed=args.seed, device=args.device)
+        alloc_arrs = run_experiment_for_agents(num_agents, args.episodes, args.horizon, 
+                                               seed=args.seed, device=args.device, 
+                                               continuous_actions=args.continuous_actions)
         print(f"    alloc_arrs shape: {alloc_arrs.shape}, sample: {alloc_arrs[0, :, :5]}")
         
         # For each episode, average over agents, then compute cumulative sum over time
