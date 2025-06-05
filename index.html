@@ -3,31 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Polaris - Multi-Agent Reinforcement Learning Framework</title>
-    <meta name="description" content="A sophisticated multi-agent reinforcement learning framework for strategic experimentation and network topology research.">
+    <title>Social Learning via Multi-Agent Reinforcement Learning | Polaris Framework</title>
+    <meta name="description" content="Academic research on social learning theory and multi-agent reinforcement learning. Introducing Partially Observable Active Markov Games (POAMGs) and the POLARIS algorithm.">
     
     <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Source+Sans+Pro:ital,wght@0,300;0,400;0,600;0,700;1,400;1,600&family=Source+Code+Pro:wght@400;500&display=swap" rel="stylesheet">
     
     <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- MathJax -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>
+        MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            }
+        };
+    </script>
     
     <style>
         :root {
-            --primary-color: #2563eb;
-            --primary-dark: #1d4ed8;
-            --secondary-color: #64748b;
-            --accent-color: #06b6d4;
+            --primary-color: #1f2937;
+            --primary-dark: #111827;
+            --secondary-color: #4b5563;
+            --accent-color: #059669;
+            --accent-light: #10b981;
             --bg-color: #ffffff;
-            --bg-secondary: #f8fafc;
-            --text-primary: #1e293b;
-            --text-secondary: #64748b;
-            --border-color: #e2e8f0;
-            --gradient-primary: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
-            --gradient-secondary: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            --bg-secondary: #f9fafb;
+            --bg-tertiary: #f3f4f6;
+            --text-primary: #111827;
+            --text-secondary: #4b5563;
+            --text-muted: #6b7280;
+            --border-color: #d1d5db;
+            --border-light: #e5e7eb;
             --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
             --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
             --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 10px 10px -5px rgb(0 0 0 / 0.04);
         }
 
         * {
@@ -37,8 +51,8 @@
         }
 
         body {
-            font-family: 'Inter', sans-serif;
-            line-height: 1.6;
+            font-family: 'Source Sans Pro', sans-serif;
+            line-height: 1.7;
             color: var(--text-primary);
             background-color: var(--bg-color);
         }
@@ -49,11 +63,32 @@
             padding: 0 2rem;
         }
 
+        /* Academic Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-family: 'Crimson Text', serif;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 1rem;
+        }
+
+        h1 { font-size: 2.5rem; line-height: 1.2; }
+        h2 { font-size: 2rem; line-height: 1.3; }
+        h3 { font-size: 1.5rem; line-height: 1.4; }
+        h4 { font-size: 1.25rem; line-height: 1.4; }
+
+        .subtitle {
+            font-family: 'Source Sans Pro', sans-serif;
+            font-style: italic;
+            color: var(--text-secondary);
+            font-size: 1.125rem;
+            margin-bottom: 2rem;
+        }
+
         /* Header */
         header {
             background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(10px);
-            border-bottom: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-light);
             position: fixed;
             top: 0;
             left: 0;
@@ -70,6 +105,7 @@
         }
 
         .logo {
+            font-family: 'Crimson Text', serif;
             font-size: 1.5rem;
             font-weight: 700;
             color: var(--primary-color);
@@ -89,36 +125,39 @@
         .nav-links a {
             text-decoration: none;
             color: var(--text-secondary);
-            font-weight: 500;
+            font-weight: 400;
             transition: color 0.3s ease;
+            font-size: 0.95rem;
         }
 
         .nav-links a:hover {
-            color: var(--primary-color);
+            color: var(--accent-color);
         }
 
         .github-btn {
-            background: var(--gradient-primary);
+            background: var(--primary-color);
             color: white;
             padding: 0.5rem 1rem;
-            border-radius: 0.5rem;
+            border-radius: 0.375rem;
             text-decoration: none;
             font-weight: 500;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            transition: all 0.3s ease;
             display: flex;
             align-items: center;
             gap: 0.5rem;
+            font-size: 0.875rem;
         }
 
         .github-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-lg);
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
         }
 
         /* Hero Section */
         .hero {
-            background: var(--gradient-secondary);
-            padding: 8rem 0 4rem;
+            background: linear-gradient(135deg, var(--bg-color) 0%, var(--bg-secondary) 100%);
+            padding: 8rem 0 6rem;
             text-align: center;
             position: relative;
             overflow: hidden;
@@ -131,33 +170,48 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="%23e2e8f0" stroke-width="0.5"/></pattern></defs><rect width="100" height="100" fill="url(%23grid)"/></svg>');
-            opacity: 0.5;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M 20 0 L 0 0 0 20" fill="none" stroke="%23e5e7eb" stroke-width="0.5"/></pattern></defs><rect width="100" height="100" fill="url(%23grid)"/></svg>');
+            opacity: 0.4;
         }
 
         .hero-content {
             position: relative;
             z-index: 1;
+            max-width: 800px;
+            margin: 0 auto;
         }
 
         .hero h1 {
-            font-size: 3.5rem;
+            font-size: 3rem;
             font-weight: 700;
-            margin-bottom: 1.5rem;
-            background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
             line-height: 1.2;
         }
 
-        .hero p {
-            font-size: 1.25rem;
+        .author-info {
+            font-size: 1.125rem;
             color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .institution {
+            font-size: 1rem;
+            color: var(--text-muted);
             margin-bottom: 2rem;
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
+        }
+
+        .abstract-preview {
+            background: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-light);
+            text-align: left;
+            font-size: 1rem;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            margin: 2rem 0;
         }
 
         .hero-buttons {
@@ -165,28 +219,31 @@
             gap: 1rem;
             justify-content: center;
             flex-wrap: wrap;
+            margin-top: 2rem;
         }
 
         .btn {
             padding: 0.75rem 1.5rem;
-            border-radius: 0.5rem;
+            border-radius: 0.375rem;
             text-decoration: none;
             font-weight: 500;
             transition: all 0.3s ease;
             display: inline-flex;
             align-items: center;
             gap: 0.5rem;
+            font-size: 0.95rem;
         }
 
         .btn-primary {
-            background: var(--gradient-primary);
+            background: var(--accent-color);
             color: white;
-            box-shadow: var(--shadow-md);
+            box-shadow: var(--shadow-sm);
         }
 
         .btn-primary:hover {
+            background: var(--accent-light);
             transform: translateY(-2px);
-            box-shadow: var(--shadow-lg);
+            box-shadow: var(--shadow-md);
         }
 
         .btn-secondary {
@@ -201,10 +258,9 @@
             box-shadow: var(--shadow-md);
         }
 
-        /* Features Section */
-        .features {
+        /* Academic Sections */
+        .section {
             padding: 4rem 0;
-            background: white;
         }
 
         .section-title {
@@ -213,7 +269,7 @@
         }
 
         .section-title h2 {
-            font-size: 2.5rem;
+            font-size: 2.25rem;
             font-weight: 700;
             margin-bottom: 1rem;
             color: var(--text-primary);
@@ -222,76 +278,13 @@
         .section-title p {
             font-size: 1.125rem;
             color: var(--text-secondary);
-            max-width: 600px;
+            max-width: 700px;
             margin: 0 auto;
-        }
-
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-            margin-top: 3rem;
-        }
-
-        .feature-card {
-            background: white;
-            padding: 2rem;
-            border-radius: 1rem;
-            border: 1px solid var(--border-color);
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .feature-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: var(--gradient-primary);
-            transform: scaleX(0);
-            transition: transform 0.3s ease;
-        }
-
-        .feature-card:hover::before {
-            transform: scaleX(1);
-        }
-
-        .feature-card:hover {
-            transform: translateY(-4px);
-            box-shadow: var(--shadow-lg);
-        }
-
-        .feature-icon {
-            width: 3rem;
-            height: 3rem;
-            background: var(--gradient-primary);
-            border-radius: 0.75rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 1rem;
-            color: white;
-            font-size: 1.5rem;
-        }
-
-        .feature-card h3 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            color: var(--text-primary);
-        }
-
-        .feature-card p {
-            color: var(--text-secondary);
-            line-height: 1.6;
+            line-height: 1.7;
         }
 
         /* Research Highlights */
         .research {
-            padding: 4rem 0;
             background: var(--bg-secondary);
         }
 
@@ -305,8 +298,9 @@
         .research-card {
             background: white;
             padding: 2rem;
-            border-radius: 1rem;
+            border-radius: 0.5rem;
             box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-light);
             transition: all 0.3s ease;
         }
 
@@ -316,7 +310,7 @@
         }
 
         .research-card h3 {
-            font-size: 1.5rem;
+            font-size: 1.375rem;
             font-weight: 600;
             margin-bottom: 1rem;
             color: var(--text-primary);
@@ -328,28 +322,235 @@
         }
 
         .research-card li {
-            padding: 0.25rem 0;
+            padding: 0.5rem 0;
             color: var(--text-secondary);
             display: flex;
-            align-items: center;
-            gap: 0.5rem;
+            align-items: flex-start;
+            gap: 0.75rem;
+            line-height: 1.6;
         }
 
         .research-card li::before {
-            content: '✓';
+            content: '→';
             color: var(--accent-color);
             font-weight: bold;
+            margin-top: 0.1rem;
         }
 
-        /* Code Example */
+        /* Empirical Results */
+        .results-section {
+            background: white;
+        }
+
+        .results-content {
+            max-width: 1000px;
+            margin: 0 auto;
+            text-align: left;
+            line-height: 1.8;
+        }
+
+        .result-category {
+            margin-bottom: 4rem;
+        }
+
+        .result-category h3 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        .result-category p {
+            font-size: 1.125rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            line-height: 1.7;
+        }
+
+        .plots-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .plot-container {
+            position: relative;
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-light);
+            overflow: hidden;
+        }
+
+        .result-plot {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .plot-caption {
+            padding: 1rem;
+            background: var(--bg-secondary);
+            font-size: 0.95rem;
+            line-height: 1.6;
+            color: var(--text-secondary);
+        }
+
+        .plot-caption strong {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .key-findings {
+            margin-top: 3rem;
+        }
+
+        .key-findings h3 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: var(--text-primary);
+        }
+
+        .findings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .finding-item {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-light);
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .finding-item:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .finding-icon {
+            width: 2.5rem;
+            height: 2.5rem;
+            background: var(--accent-color);
+            border-radius: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.125rem;
+            flex-shrink: 0;
+        }
+
+        .finding-content {
+            flex: 1;
+        }
+
+        .finding-content h4 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        .finding-content p {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        /* Theoretical Framework */
+        .theory-section {
+            background: white;
+        }
+
+        .theory-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 3rem;
+            margin-top: 3rem;
+        }
+
+        .theory-card {
+            padding: 2rem;
+            border: 1px solid var(--border-light);
+            border-radius: 0.5rem;
+            background: var(--bg-secondary);
+        }
+
+        .theory-card h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        .theory-card p {
+            color: var(--text-secondary);
+            line-height: 1.7;
+            margin-bottom: 1rem;
+        }
+
+        .math-formula {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 0.375rem;
+            border: 1px solid var(--border-light);
+            font-family: 'Source Code Pro', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+
+        /* Applications */
+        .applications {
+            background: var(--bg-secondary);
+        }
+
+        .app-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+
+        .app-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-light);
+        }
+
+        .app-icon {
+            width: 3rem;
+            height: 3rem;
+            background: var(--accent-color);
+            border-radius: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1rem;
+            color: white;
+            font-size: 1.5rem;
+        }
+
+        /* Code Section */
         .code-section {
-            padding: 4rem 0;
             background: white;
         }
 
         .code-container {
             background: #1e293b;
-            border-radius: 1rem;
+            border-radius: 0.5rem;
             padding: 2rem;
             margin-top: 2rem;
             position: relative;
@@ -363,29 +564,81 @@
             margin-bottom: 1rem;
             color: #94a3b8;
             font-size: 0.875rem;
+            font-family: 'Source Code Pro', monospace;
         }
 
         .code-container pre {
             margin: 0;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: 'Source Code Pro', monospace;
             color: #e2e8f0;
             line-height: 1.6;
-        }
-
-        .code-container code {
-            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
         }
 
         /* Syntax highlighting */
-        .keyword { color: #7c3aed; }
-        .string { color: #10b981; }
+        .keyword { color: #a78bfa; }
+        .string { color: #34d399; }
         .comment { color: #6b7280; }
-        .function { color: #3b82f6; }
+        .function { color: #60a5fa; }
+
+        /* Publications */
+        .publications {
+            background: var(--bg-secondary);
+        }
+
+        .pub-list {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .pub-item {
+            background: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-light);
+            margin-bottom: 1.5rem;
+        }
+
+        .pub-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .pub-authors {
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .pub-venue {
+            font-style: italic;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+
+        .pub-links {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .pub-link {
+            color: var(--accent-color);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .pub-link:hover {
+            text-decoration: underline;
+        }
 
         /* Footer */
         footer {
-            background: #1e293b;
-            color: #94a3b8;
+            background: var(--primary-color);
+            color: #d1d5db;
             padding: 3rem 0 2rem;
         }
 
@@ -404,7 +657,7 @@
         }
 
         .footer-section a {
-            color: #94a3b8;
+            color: #d1d5db;
             text-decoration: none;
             display: block;
             margin-bottom: 0.5rem;
@@ -412,13 +665,14 @@
         }
 
         .footer-section a:hover {
-            color: var(--accent-color);
+            color: var(--accent-light);
         }
 
         .footer-bottom {
             border-top: 1px solid #374151;
             padding-top: 2rem;
             text-align: center;
+            color: #9ca3af;
         }
 
         /* Responsive Design */
@@ -432,7 +686,7 @@
             }
 
             .hero h1 {
-                font-size: 2.5rem;
+                font-size: 2.25rem;
             }
 
             .hero-buttons {
@@ -440,11 +694,9 @@
                 align-items: center;
             }
 
-            .features-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .research-grid {
+            .research-grid,
+            .theory-grid,
+            .app-grid {
                 grid-template-columns: 1fr;
             }
         }
@@ -465,22 +717,35 @@
             animation: fadeInUp 0.6s ease-out;
         }
 
-        /* Scrollbar Styling */
-        ::-webkit-scrollbar {
-            width: 8px;
+        /* Academic Elements */
+        .definition-box {
+            background: #f8fafc;
+            border-left: 4px solid var(--accent-color);
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            border-radius: 0 0.375rem 0.375rem 0;
         }
 
-        ::-webkit-scrollbar-track {
-            background: var(--bg-secondary);
+        .definition-box h4 {
+            color: var(--accent-color);
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
         }
 
-        ::-webkit-scrollbar-thumb {
-            background: var(--primary-color);
-            border-radius: 4px;
+        .theorem-box {
+            background: #fef7f0;
+            border-left: 4px solid #f59e0b;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            border-radius: 0 0.375rem 0.375rem 0;
         }
 
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--primary-dark);
+        .theorem-box h4 {
+            color: #f59e0b;
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
         }
     </style>
 </head>
@@ -490,17 +755,16 @@
         <div class="container">
             <nav>
                 <a href="#" class="logo">
-                    <i class="fas fa-network-wired"></i>
-                    Polaris
+                    <i class="fas fa-graduation-cap"></i>
+                    POLARIS
                 </a>
                 <ul class="nav-links">
-                    <li><a href="#features">Features</a></li>
                     <li><a href="#research">Research</a></li>
-                    <li><a href="#code">Code</a></li>
-                    <li><a href="#docs">Documentation</a></li>
+                    <li><a href="#results">Results</a></li>
+                    <li><a href="#publications">Publications</a></li>
                     <li><a href="https://github.com/ecdogaroglu/polaris" class="github-btn">
                         <i class="fab fa-github"></i>
-                        GitHub
+                        Repository
                     </a></li>
                 </ul>
             </nav>
@@ -511,190 +775,237 @@
     <section class="hero">
         <div class="container">
             <div class="hero-content animate-fade-in-up">
-                <h1>Polaris MARL</h1>
-                <p>A sophisticated multi-agent reinforcement learning framework for strategic experimentation and network topology research. Explore emergent behaviors in complex multi-agent environments.</p>
+                <h1>Social Learning via Multi-Agent Reinforcement Learning</h1>
+                <div class="author-info">Ege Can Doğaroğlu</div>
+                <div class="institution">Master Thesis • Department of Economics<br>Rheinische Friedrich-Wilhelms-Universität Bonn • 2025</div>
+                <div class="subtitle">Supervisor: Prof. Dr. Florian Brandl</div>
+                
+                <div class="abstract-preview">
+                    This thesis bridges economic social learning theory and multi-agent reinforcement learning by introducing <strong>Partially Observable Active Markov Games (POAMGs)</strong>—a novel framework for modeling sophisticated learning dynamics in environments with partial observability. We develop <strong>POLARIS</strong> (Partially Observable Learning with Active Reinforcement In Social environments), a practical algorithm implementing our theoretical framework, and apply it to canonical social learning scenarios including strategic experimentation and learning without experimentation.
+                    
+                    <br><br>
+                    
+                    Traditional economic models provide valuable theoretical insights but often rely on simplified assumptions about agents' behavior, while reinforcement learning approaches offer computational tools that frequently lack theoretical foundations for strategic adaptation. Our framework addresses three fundamental challenges: <strong>strategic adaptation</strong> in non-stationary environments, <strong>partial observability</strong> as an intrinsic feature of social learning contexts, and <strong>long-term strategic considerations</strong> where agents balance immediate rewards with information generation.
+                    
+                    <br><br>
+                    
+                    We establish <strong>convergence conditions</strong> for the joint process of states, beliefs, and policy parameters, prove the existence of <strong>stochastically stable distributions</strong>, and develop novel <strong>policy gradient theorems</strong> for belief-conditioned policies in non-stationary multi-agent environments. Our results validate theoretical predictions while demonstrating how reinforcement learning agents can discover sophisticated strategies for information revelation and strategic influence.
+                </div>
+
                 <div class="hero-buttons">
-                    <a href="#features" class="btn btn-primary">
-                        <i class="fas fa-rocket"></i>
-                        Get Started
+                    <a href="https://github.com/ecdogaroglu/polaris/blob/main/docs/thesis.pdf" class="btn btn-primary">
+                        <i class="fas fa-book-open"></i>
+                        Read Research
                     </a>
                     <a href="https://github.com/ecdogaroglu/polaris" class="btn btn-secondary">
                         <i class="fab fa-github"></i>
-                        View on GitHub
+                        View Code
                     </a>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Features Section -->
-    <section id="features" class="features">
-        <div class="container">
-            <div class="section-title">
-                <h2>Powerful Features</h2>
-                <p>Built for researchers and practitioners working with multi-agent systems and strategic experimentation.</p>
-            </div>
-            <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="fas fa-brain"></i>
-                    </div>
-                    <h3>Advanced MARL Algorithms</h3>
-                    <p>Implementation of state-of-the-art multi-agent reinforcement learning algorithms including MADDPG, TD3, and Graph Neural Network approaches for complex coordination tasks.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="fas fa-project-diagram"></i>
-                    </div>
-                    <h3>Network Topologies</h3>
-                    <p>Support for various network structures including complete graphs, ring topologies, and star networks. Analyze how network structure affects agent coordination and performance.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="fas fa-flask"></i>
-                    </div>
-                    <h3>Strategic Experimentation</h3>
-                    <p>Framework for strategic experimentation scenarios where agents must balance exploration and exploitation while learning from each other's actions and outcomes.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="fas fa-chart-line"></i>
-                    </div>
-                    <h3>Performance Analysis</h3>
-                    <p>Comprehensive evaluation tools with detailed metrics, visualization capabilities, and comparison frameworks for analyzing multi-agent system performance.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="fas fa-cogs"></i>
-                    </div>
-                    <h3>Modular Architecture</h3>
-                    <p>Clean, extensible codebase with separate modules for agents, environments, policies, and training infrastructure. Easy to customize and extend for new research directions.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="fas fa-balance-scale"></i>
-                    </div>
-                    <h3>Balanced Learning</h3>
-                    <p>Advanced techniques for addressing asymmetry and ensuring balanced learning across agents with different capabilities and network positions.</p>
                 </div>
             </div>
         </div>
     </section>
 
     <!-- Research Highlights -->
-    <section id="research" class="research">
+    <section id="research" class="section research">
         <div class="container">
             <div class="section-title">
-                <h2>Research Highlights</h2>
-                <p>Cutting-edge research in multi-agent systems, strategic experimentation, and network effects in learning.</p>
+                <h2>Research Contributions</h2>
+                <p>Four interconnected contributions that advance our understanding of social learning processes</p>
             </div>
             <div class="research-grid">
                 <div class="research-card">
-                    <h3>Network Topology Analysis</h3>
+                    <h3>Partially Observable Active Markov Games</h3>
                     <ul>
-                        <li>Complete graph networks with full connectivity</li>
-                        <li>Ring topologies for sequential information flow</li>
-                        <li>Star networks with central coordination nodes</li>
-                        <li>Comparative analysis across different structures</li>
+                        <li>Novel formalism extending Active Markov Games to partially observable settings</li>
+                        <li>Incorporates policy evolution as integral part of environment dynamics</li>
+                        <li>Accounts for fundamental constraints imposed by partial observability</li>
+                        <li>Mathematically rigorous foundation for complex social learning analysis</li>
                     </ul>
                 </div>
                 <div class="research-card">
-                    <h3>Algorithm Implementations</h3>
+                    <h3>Theoretical Analysis</h3>
                     <ul>
-                        <li>TD3-based multi-agent learning</li>
-                        <li>Graph Neural Network integration</li>
-                        <li>State-aware coordination mechanisms</li>
-                        <li>Policy inversion techniques</li>
+                        <li>Convergence conditions for joint process of states, beliefs, and policy parameters</li>
+                        <li>Stochastically stable distribution ensuring well-defined limiting behavior</li>
+                        <li>Policy gradient theorems for average and discounted reward objectives</li>
+                        <li>Extension to continuous-time dynamics through stochastic differential equations</li>
                     </ul>
                 </div>
                 <div class="research-card">
-                    <h3>Experimental Validation</h3>
+                    <h3>POLARIS Algorithm</h3>
                     <ul>
-                        <li>Comprehensive benchmark comparisons</li>
-                        <li>Asymmetry diagnosis frameworks</li>
-                        <li>Statistical significance testing</li>
-                        <li>Reproducible research protocols</li>
+                        <li>Practical algorithm for learning in POAMGs with integrated architecture</li>
+                        <li>Belief processing module using Transformer models for information states</li>
+                        <li>Inference learning module predicting policy evolution through variational methods</li>
+                        <li>Reinforcement learning module supporting discrete and continuous action spaces</li>
+                    </ul>
+                </div>
+                <div class="research-card">
+                    <h3>Canonical Applications</h3>
+                    <ul>
+                        <li>Strategic experimentation with observable rewards building on Bolton & Harris (1999)</li>
+                        <li>Learning without experimentation through action observation extending Brandl (2024)</li>
+                        <li>Demonstrates phenomena like free-riding, strategic teaching, and information cascades</li>
+                        <li>More realistic assumptions about agents' reasoning capabilities</li>
                     </ul>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Code Example -->
-    <section id="code" class="code-section">
+    <!-- Empirical Results -->
+    <section id="results" class="section results-section">
         <div class="container">
             <div class="section-title">
-                <h2>Quick Start</h2>
-                <p>Get up and running with Polaris in just a few lines of code.</p>
+                <h2>Empirical Results</h2>
+                <p>Validation of theoretical predictions through computational experiments</p>
             </div>
-            <div class="code-container">
-                <div class="code-header">
-                    <i class="fab fa-python"></i>
-                    <span>Python</span>
+            
+            <div class="results-content">
+                <div class="result-category">
+                    <h3>Strategic Experimentation Dynamics</h3>
+                    <p>Our POLARIS implementation demonstrates how agents learn to balance exploration and exploitation while maintaining accurate beliefs about the underlying state. The results validate theoretical predictions about convergence to optimal allocation strategies.</p>
+                    
+                    <div class="plots-grid">
+                        <div class="plot-container">
+                            <img src="docs/allocation_accuracy_over_time.png" alt="Allocation Accuracy Over Time" class="result-plot">
+                            <div class="plot-caption">
+                                <strong>Allocation Accuracy Evolution:</strong> Both agents converge to near-perfect allocation accuracy (~100%) after approximately 400 time steps, demonstrating successful learning of optimal experimentation strategies despite partial observability.
+                            </div>
+                        </div>
+                        <div class="plot-container">
+                            <img src="docs/belief_accuracy_over_time.png" alt="Belief Accuracy Over Time" class="result-plot">
+                            <div class="plot-caption">
+                                <strong>Belief Formation Dynamics:</strong> Agents' beliefs exhibit sophisticated oscillatory patterns before stabilizing around 85% accuracy, revealing the complex interplay between individual learning and social information aggregation.
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <pre><code><span class="keyword">from</span> polaris.environments <span class="keyword">import</span> StrategicExperimentationEnv
-<span class="keyword">from</span> polaris.agents <span class="keyword">import</span> TD3Agent
-<span class="keyword">from</span> polaris.training <span class="keyword">import</span> MultiAgentTrainer
+                
+                <div class="result-category">
+                    <h3>Learning Without Experimentation: Information Generation Roles</h3>
+                    <p>A key finding validates the theoretical prediction that network learning creates asymmetric roles. Some agents become "information generators" who learn slower than in autarky, while others benefit from their sacrifices. This phenomenon persists across network sizes and topologies.</p>
+                    
+                    <div class="plots-grid">
+                        <div class="plot-container">
+                            <img src="docs/fastest_slowest_network_sizes_evolution.png" alt="Learning Evolution Across Network Sizes" class="result-plot">
+                            <div class="plot-caption">
+                                <strong>Network Size Effects:</strong> As network size increases from autarky to 8 agents, the gap between fastest and slowest learners widens. The fastest agent improves (r=0.3564→0.5023) while the slowest deteriorates (r=0.3564→0.1216), confirming theoretical predictions about information specialization.
+                            </div>
+                        </div>
+                        <div class="plot-container">
+                            <img src="docs/fastest_slowest_network_types_evolution.png" alt="Learning Evolution Across Network Types" class="result-plot">
+                            <div class="plot-caption">
+                                <strong>Network Topology Effects:</strong> Different network structures produce varying degrees of learning inequality. Complete networks show the largest fastest-slowest gap, while random networks maintain relatively balanced learning rates, highlighting the importance of network structure in social learning efficiency.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="key-findings">
+                    <h3>Key Empirical Findings</h3>
+                    <div class="findings-grid">
+                        <div class="finding-item">
+                            <div class="finding-icon">
+                                <i class="fas fa-chart-line"></i>
+                            </div>
+                            <div class="finding-content">
+                                <h4>Convergence Validation</h4>
+                                <p>POLARIS agents consistently converge to near-optimal strategies within 400-500 time steps across different environments, validating our stochastic stability theorems.</p>
+                            </div>
+                        </div>
+                        <div class="finding-item">
+                            <div class="finding-icon">
+                                <i class="fas fa-users"></i>
+                            </div>
+                            <div class="finding-content">
+                                <h4>Emergent Specialization</h4>
+                                <p>Networks spontaneously develop information generation roles, with some agents sacrificing individual learning speed to benefit collective intelligence.</p>
+                            </div>
+                        </div>
+                        <div class="finding-item">
+                            <div class="finding-icon">
+                                <i class="fas fa-network-wired"></i>
+                            </div>
+                            <div class="finding-content">
+                                <h4>Topology Matters</h4>
+                                <p>Network structure significantly affects learning dynamics: complete networks maximize inequality while maintaining high collective performance.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-<span class="comment"># Initialize environment with complete network topology</span>
-env = <span class="function">StrategicExperimentationEnv</span>(
-    num_agents=<span class="string">2</span>,
-    network_type=<span class="string">"complete"</span>,
-    strategic_params={<span class="string">"exploration_bonus"</span>: <span class="string">0.1</span>}
-)
+    <!-- POLARIS Implementation -->
+    <section id="code" class="section code-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>Getting Started with POLARIS</h2>
+                <p>Multi-agent reinforcement learning framework for strategic social learning</p>
+            </div>
+            
+            <!-- Installation -->
+            <div style="background: var(--bg-secondary); padding: 2rem; border-radius: 0.5rem; margin-bottom: 2rem; border: 1px solid var(--border-light);">
+                <h3 style="margin-bottom: 1rem; color: var(--text-primary);">Installation</h3>
+                <div class="code-container" style="margin: 0;">
+                    <div class="code-header">
+                        <i class="fas fa-terminal"></i>
+                        <span>pip install</span>
+                    </div>
+                    <pre><code><span class="comment"># Basic installation</span>
+pip install polaris-marl
 
-<span class="comment"># Create agents with TD3 algorithm</span>
-agents = [<span class="function">TD3Agent</span>(env.observation_space, env.action_space) 
-          <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="function">range</span>(env.num_agents)]
+<span># Command Line Usage</span>
 
-<span class="comment"># Initialize trainer</span>
-trainer = <span class="function">MultiAgentTrainer</span>(env, agents)
+<span class="comment"># Social learning experiment (Brandl framework)</span>
+polaris-simulate --environment-type brandl --num-agents 5 --num-states 3 --signal-accuracy 0.8
 
-<span class="comment"># Train the multi-agent system</span>
-results = trainer.<span class="function">train</span>(total_episodes=<span class="string">10000</span>)
+<span class="comment"># Strategic experimentation (Keller-Rady framework)</span>
+polaris-simulate --environment-type strategic_experimentation --num-agents 4 --continuous-actions</code></pre>
+                </div>
+            </div> 
+        </div>
+    </section>
 
-<span class="comment"># Evaluate performance</span>
-evaluation_results = trainer.<span class="function">evaluate</span>(num_episodes=<span class="string">100</span>)
-<span class="function">print</span>(<span class="string">f"Average reward: {evaluation_results['mean_reward']}"</span>)</code></pre>
+    <!-- Publications -->
+    <section id="publications" class="section publications">
+        <div class="container">
+            <div class="section-title">
+                <h2>Publications & Research</h2>
+                <p>Academic contributions and ongoing research</p>
+            </div>
+            
+            <div class="pub-list">
+                <div class="pub-item">
+                    <div class="pub-title">Social Learning via Multi-Agent Reinforcement Learning</div>
+                    <div class="pub-authors">Ege Can Doğaroğlu</div>
+                    <div class="pub-venue">Master Thesis, University of Bonn, 2025</div>
+                    <div class="pub-links">
+                        <a href="https://github.com/ecdogaroglu/polaris/blob/main/docs/thesis.pdf" class="pub-link"><i class="fas fa-file-pdf"></i> PDF</a>
+                    </div>
+                </div>
+                
+                
+                <div class="pub-item">
+                    <div class="pub-title">POLARIS: A MARL Framework for Strategic Social Learning</div>
+                    <div class="pub-authors">Ege Can Doğaroğlu</div>
+                    <div class="pub-venue">Github Repository</div>
+                    <div class="pub-links">
+                        <a href="https://github.com/ecdogaroglu/polaris" class="pub-link"><i class="fab fa-github"></i> Code</a>
+                    </div>
+                </div>
             </div>
         </div>
     </section>
 
     <!-- Footer -->
     <footer>
-        <div class="container">
-            <div class="footer-content">
-                <div class="footer-section">
-                    <h3>Documentation</h3>
-                    <a href="#docs">Getting Started</a>
-                    <a href="#docs">API Reference</a>
-                    <a href="#docs">Examples</a>
-                    <a href="#docs">Tutorials</a>
-                </div>
-                <div class="footer-section">
-                    <h3>Research</h3>
-                    <a href="#research">Publications</a>
-                    <a href="#research">Experiments</a>
-                    <a href="#research">Benchmarks</a>
-                    <a href="#research">Results</a>
-                </div>
-                <div class="footer-section">
-                    <h3>Community</h3>
-                    <a href="https://github.com/ecdogaroglu/polaris">GitHub</a>
-                    <a href="https://github.com/ecdogaroglu/polaris/issues">Issues</a>
-                    <a href="https://github.com/ecdogaroglu/polaris/discussions">Discussions</a>
-                    <a href="https://github.com/ecdogaroglu/polaris/wiki">Wiki</a>
-                </div>
-                <div class="footer-section">
-                    <h3>Connect</h3>
-                    <a href="mailto:ecdogaroglu@gmail.com">Contact</a>
-                    <a href="https://linkedin.com/in/ecdogaroglu">LinkedIn</a>
-                </div>
-            </div>
             <div class="footer-bottom">
-                <p>&copy; 2025 Polaris MARL. Released under the MIT License.</p>
+                <p>&copy; 2025 Ege Can Doğaroğlu. Academic research on social learning and multi-agent reinforcement learning.</p>
             </div>
-        </div>
     </footer>
 
     <script>
@@ -738,8 +1049,8 @@ evaluation_results = trainer.<span class="function">evaluate</span>(num_episodes
             });
         }, observerOptions);
 
-        // Observe all feature cards and research cards
-        document.querySelectorAll('.feature-card, .research-card').forEach(card => {
+        // Observe all cards
+        document.querySelectorAll('.research-card, .theory-card, .app-card, .pub-item').forEach(card => {
             observer.observe(card);
         });
     </script>
