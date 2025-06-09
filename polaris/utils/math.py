@@ -18,27 +18,51 @@ def calculate_learning_rate(mistake_history: List[float]) -> float:
     Returns:
         learning_rate: Estimated learning rate
     """
-    if len(mistake_history) < 10:  # Need sufficient points for regression
+    if len(mistake_history) < 3:  # Need at least 3 points for meaningful regression
         return 0.0
 
     mistake_history = np.array(mistake_history)
+    
+    # Handle edge cases
+    if np.all(mistake_history == mistake_history[0]):
+        # All values are the same (no learning)
+        return 0.0
+    
+    if np.any(mistake_history <= 0):
+        # Replace zeros and negative values with a small positive value
+        mistake_history = np.clip(mistake_history, 1e-10, 1.0)
 
     # Time steps
     t = np.arange(len(mistake_history))
 
     # Log of mistake probability, avoiding log(0)
-    log_mistakes = np.log(np.clip(mistake_history, 1e-10, 1.0))
+    log_mistakes = np.log(mistake_history)
 
-    # Simple linear regression on log-transformed data
-    # log(P(mistake)) = -rt + c
-    A = np.vstack([t, np.ones_like(t)]).T
-    result = np.linalg.lstsq(A, log_mistakes, rcond=None)
-    minus_r, c = result[0]
+    try:
+        # Simple linear regression on log-transformed data
+        # log(P(mistake)) = -rt + c
+        A = np.vstack([t, np.ones_like(t)]).T
+        result = np.linalg.lstsq(A, log_mistakes, rcond=None)
+        minus_r, c = result[0]
 
-    # Negate slope to get positive learning rate
-    learning_rate = -minus_r
+        # Negate slope to get positive learning rate
+        learning_rate = -minus_r
+        
+        # Handle invalid results
+        if np.isnan(learning_rate) or np.isinf(learning_rate):
+            return 0.0
+            
+        # For very short sequences, apply a correction factor
+        if len(mistake_history) < 10:
+            # Scale down the learning rate for short sequences as it's less reliable
+            correction_factor = len(mistake_history) / 10.0
+            learning_rate *= correction_factor
 
-    return learning_rate
+        return max(0.0, learning_rate)  # Ensure non-negative
+        
+    except Exception:
+        # If regression fails, return 0
+        return 0.0
 
 
 def calculate_agent_learning_rates(

@@ -80,20 +80,20 @@ def run_agent_experiment(num_agents, episodes, horizon, seed=0, device='cpu', co
         training_config = TrainingConfig(
             batch_size=8,
             buffer_capacity=50,
-            num_episodes=1,  # Single episode per run
+                    num_episodes=1,  # Single episode per run
             horizon=horizon
         )
         
         env_config = StrategicExpConfig(
             environment_type='strategic_experimentation',
             num_agents=num_agents,
-            seed=episode_seed,  # Different seed for each episode
+                    seed=episode_seed,  # Different seed for each episode
             safe_payoff=0.5,
             drift_rates=[0, 1],  # first values for bad state, second for good state
             jump_rates=[0, 0.1],
             jump_sizes=[1.0, 1.0],
             diffusion_sigma=0.0,
-            background_informativeness=0.0,
+                    background_informativeness=0.001,
             time_step=1.0,
             continuous_actions=continuous_actions
         )
@@ -102,18 +102,18 @@ def run_agent_experiment(num_agents, episodes, horizon, seed=0, device='cpu', co
             agent=agent_config,
             training=training_config,
             environment=env_config,
-            device=device,
+                device=device,
             output_dir=str(RESULTS_DIR),
-            exp_name=f"strategic_experimentation_sweep_agents_{num_agents}_ep{episode_idx}",
-            save_model=False,
+                exp_name=f"strategic_experimentation_sweep_agents_{num_agents}_ep{episode_idx}",
+                save_model=False,
             load_model=None,
             eval_only=False,
-            plot_internal_states=False,  # Disable internal plotting to avoid conflicts
-            plot_allocations=False,      # Disable internal plotting to avoid conflicts
+                plot_internal_states=False,  # Disable internal plotting to avoid conflicts
+                plot_allocations=False,      # Disable internal plotting to avoid conflicts
             latex_style=False,
             use_tex=False
         )
-        
+    
         # Create fresh environment for this episode
         env = StrategicExperimentationEnvironment(
             num_agents=num_agents,
@@ -256,93 +256,112 @@ def calculate_trajectory_stats(trajectories_by_state):
     }
 
 
-def plot_state_specific_results(results, state_name, state_value, args):
+def plot_unified_results(results, args):
     """
-    Plot highest vs lowest allocators for a specific state with separate subplots.
+    Plot all highest vs lowest allocators in one figure with 4 subplots using improved grayscale styling.
     
     Args:
         results: Dictionary with results for each agent count
-        state_name: Name of the state ('Good' or 'Bad')
-        state_value: Value of the state (1 or 0)
         args: Command line arguments
     """
-    plt.figure(figsize=(15, 6))
+    # Create figure with 4 subplots (2x2 grid)
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8), constrained_layout=True)
+    axes = axes.flatten()  # Flatten for easier indexing
     
     agent_counts = sorted(results.keys())
     
-    # Create two subplots: one for highest, one for lowest
-    colors = ['blue', 'orange', 'green', 'red', 'purple', 'brown', 'pink', 'gray']
+    # Better grayscale colors with higher contrast
+    grays = ['#000000', '#404040', '#808080', '#C0C0C0']  # Black, dark gray, medium gray, light gray
     
-    # Subplot 1: Highest Allocators
-    plt.subplot(1, 2, 1)
+    # Different line styles for better distinction
+    line_styles = ['-', '--', '-.', ':']  # Solid, dashed, dash-dot, dotted
     
-    for i, num_agents in enumerate(agent_counts):
-        # Get results for this agent count and state
-        agent_results = results[num_agents]
-        state_key = 'good_state_episodes' if state_value == 1 else 'bad_state_episodes'
-        state_episodes = agent_results[state_key]
+    # Different markers for each network size
+    markers = ['o', 's', '^', 'D']  # Circle, square, triangle, diamond
+    
+    # Subplot titles and data keys
+    subplot_configs = [
+        {'title': 'Highest Allocators (Good State)', 'state': 'good', 'type': 'highest'},
+        {'title': 'Lowest Allocators (Good State)', 'state': 'good', 'type': 'lowest'},
+        {'title': 'Highest Allocators (Bad State)', 'state': 'bad', 'type': 'highest'},
+        {'title': 'Lowest Allocators (Bad State)', 'state': 'bad', 'type': 'lowest'}
+    ]
+    
+    # Plot each subplot
+    for subplot_idx, config in enumerate(subplot_configs):
+        ax = axes[subplot_idx]
         
-        # Calculate statistics
-        stats = calculate_trajectory_stats(state_episodes)
-        
-        if stats['highest_mean'] is not None:
-            time_steps = range(len(stats['highest_mean']))
-            color = colors[i % len(colors)]
+        # Plot for each agent count
+        for i, num_agents in enumerate(agent_counts):
+            agent_results = results[num_agents]
+            color = grays[i % len(grays)]
+            line_style = line_styles[i % len(line_styles)]
+            marker = markers[i % len(markers)]
             
-            # Plot highest allocators with confidence interval
-            plt.plot(time_steps, stats['highest_mean'], 
-                    label=f'{num_agents} agents' if num_agents > 1 else 'Autarky', 
-                    color=color, linewidth=2.5, alpha=0.9)
-            plt.fill_between(time_steps, 
-                           stats['highest_ci'][0], 
-                           stats['highest_ci'][1],
-                           color=color, alpha=0.2)
-    
-    plt.xlabel("Time Steps", fontsize=12, fontweight='bold')
-    plt.ylabel("Cumulative Allocation to Risky Arm", fontsize=12, fontweight='bold')
-    plt.title("Highest Cumulative Allocators", fontsize=14, fontweight='bold')
-    plt.legend(fontsize=10, loc='upper left')
-    plt.grid(True, alpha=0.3)
-    
-    # Subplot 2: Lowest Allocators
-    plt.subplot(1, 2, 2)
-    
-    for i, num_agents in enumerate(agent_counts):
-        # Get results for this agent count and state
-        agent_results = results[num_agents]
-        state_key = 'good_state_episodes' if state_value == 1 else 'bad_state_episodes'
-        state_episodes = agent_results[state_key]
-        
-        # Calculate statistics
-        stats = calculate_trajectory_stats(state_episodes)
-        
-        if stats['lowest_mean'] is not None:
-            time_steps = range(len(stats['lowest_mean']))
-            color = colors[i % len(colors)]
+            # Get episodes for this state
+            if config['state'] == 'good':
+                state_episodes = agent_results['good_state_episodes']
+            else:
+                state_episodes = agent_results['bad_state_episodes']
             
-            # Plot lowest allocators with confidence interval
-            plt.plot(time_steps, stats['lowest_mean'], 
-                    label=f'{num_agents} agents' if num_agents > 1 else 'Autarky', 
-                    color=color, linewidth=2.5, alpha=0.9)
-            plt.fill_between(time_steps, 
-                           stats['lowest_ci'][0], 
-                           stats['lowest_ci'][1],
-                           color=color, alpha=0.2)
+            # Calculate statistics
+            stats = calculate_trajectory_stats(state_episodes)
+            
+            # Get the appropriate data (highest or lowest)
+            if config['type'] == 'highest':
+                mean_data = stats['highest_mean']
+                ci_data = stats['highest_ci']
+            else:
+                mean_data = stats['lowest_mean']
+                ci_data = stats['lowest_ci']
+            
+            # Plot if data exists
+            if mean_data is not None:
+                time_steps = range(len(mean_data))
+                label = f'{num_agents} agents' if num_agents > 1 else 'Autarky'
+                
+                # Plot line with confidence interval and markers
+                ax.plot(time_steps, mean_data, 
+                       label=label, 
+                       color=color, 
+                       linestyle=line_style,
+                       marker=marker,
+                       markersize=6,
+                       markevery=10,  # Show marker at every point
+                       linewidth=2.5, 
+                       alpha=0.9)
+                ax.fill_between(time_steps, 
+                              ci_data[0], 
+                              ci_data[1],
+                              color=color, alpha=0.1)
+        
+        # Format subplot
+        ax.set_xlabel("Time Steps", fontsize=12, fontweight='bold')
+        ax.set_ylabel("Cumulative Allocation", fontsize=12, fontweight='bold')
+        ax.set_title(config['title'], fontsize=14, fontweight='bold')
+        ax.legend(fontsize=10, loc='upper left', framealpha=0.9)
+        ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+        ax.tick_params(labelsize=10)
+        
+        # Set clean white background
+        ax.set_facecolor('white')
     
-    plt.xlabel("Time Steps", fontsize=12, fontweight='bold')
-    plt.ylabel("Cumulative Allocation to Risky Arm", fontsize=12, fontweight='bold')
-    plt.title("Lowest Cumulative Allocators", fontsize=14, fontweight='bold')
-    plt.legend(fontsize=10, loc='upper left')
-    plt.grid(True, alpha=0.3)
+    # Overall title
+    fig.suptitle(f"Cumulative Allocators by Network Size and State\n(Mean over {EPISODES} episodes with ±95% CI)", 
+                fontsize=16, fontweight='bold')
     
-    plt.suptitle(f"Cumulative Allocators by Network Size ({state_name} State, 95% Confidence Intervals)", 
-                 fontsize=16, fontweight='bold')
-    plt.tight_layout()
-    
-    plot_path = RESULTS_DIR / f"highest_lowest_cumulative_allocators_{state_name.lower()}_state.png"
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    print(f"Saved {state_name.lower()} state cumulative allocations plot to {plot_path}")
+    # Save plot
+    plot_path = RESULTS_DIR / "unified_cumulative_allocators.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight', facecolor='white')
+    print(f"Saved unified cumulative allocations plot to {plot_path}")
     plt.close()
+
+
+def plot_state_specific_results(results, state_name, state_value, args):
+    """
+    Legacy function - now redirects to unified plot.
+    """
+    pass  # This function is no longer used
 
 
 def main():
@@ -353,7 +372,7 @@ def main():
     parser.add_argument('--episodes', type=int, default=EPISODES, help='Number of episodes per configuration')
     parser.add_argument('--horizon', type=int, default=HORIZON, help='Steps per episode')
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
-    parser.add_argument('--device', type=str, default='cpu', choices=['cpu', 'mps', 'cuda'],
+    parser.add_argument('--device', type=str, default='cpu', choices=['cpu', 'mps', 'cuda'], 
                        help='Device to use')
     parser.add_argument('--continuous-actions', action='store_true', default=False,
                        help='Use continuous actions (default: discrete actions with action 1 prob as allocation)')
@@ -374,10 +393,10 @@ def main():
     print("🔍 Analysis Focus:")
     print("   • Highest vs lowest cumulative allocator trajectories with 95% confidence intervals")
     print("   • State-specific analysis (good state vs bad state)")
-    print("   • Network size impact on cumulative allocation disparities")
+    print("   • 4-subplot visualization with grayscale styling and clear network size comparison")
     print()
     
-    # Set matplotlib style
+    # Set matplotlib style for grayscale and publication quality
     plt.rcParams["font.family"] = "serif"
     plt.rcParams["font.serif"] = [
         "DejaVu Serif",
@@ -402,19 +421,15 @@ def main():
         bad_episodes = len(agent_results['bad_state_episodes'])
         print(f"Good state: {good_episodes} episodes, Bad state: {bad_episodes} episodes")
     
-    print("\n=== 📈 Generating State-Specific Cumulative Allocation Visualizations ===")
-    print("Creating plots showing:")
+    print("\n=== 📈 Generating Unified Cumulative Allocation Visualization ===")
+    print("Creating unified plot with 4 subplots showing:")
     print("• Highest vs lowest cumulative allocator trajectories with 95% confidence intervals")
-    print("• Separate analysis for good state and bad state episodes")
-    print("• Two subplots per state: one for highest, one for lowest allocators")
-    print("• Lines showing different network sizes in each subplot")
+    print("• 4 subplots: Highest/Lowest × Good/Bad state combinations")
+    print("• Lines showing different network sizes in each subplot with grayscale styling")
     print()
     
-    # Plot results for good state (state = 1)
-    plot_state_specific_results(results, "Good", 1, args)
-    
-    # Plot results for bad state (state = 0)
-    plot_state_specific_results(results, "Bad", 0, args)
+    # Generate unified plot
+    plot_unified_results(results, args)
     
     print("\n=== Sweep completed successfully! ===")
 

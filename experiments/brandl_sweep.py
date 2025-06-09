@@ -58,7 +58,7 @@ from polaris.utils.math import calculate_learning_rate
 # --- FOCUSED PARAMETERS ---
 AGENT_COUNTS = [1, 2, 4, 8]  # Network sizes to compare
 NETWORK_TYPES = ['complete', 'ring', 'star', 'random']  # Network types to compare
-EPISODES = 5  # Multiple episodes for confidence intervals
+EPISODES = 10  # Multiple episodes for confidence intervals
 HORIZON = 50  # Shorter for faster execution
 SIGNAL_ACCURACY = 0.75
 RESULTS_DIR = Path("results/brandl_experiment/agent_performance")
@@ -1561,42 +1561,49 @@ def main():
         if performance['slowest_mean'] is not None:
             time_steps = range(len(performance['slowest_mean']))
             
-            slowest_lr = performance['learning_rates'].get(performance['slowest_agent_id'], 0.0)
-            fastest_lr = performance['learning_rates'].get(performance['fastest_agent_id'], 0.0)
+            # Calculate learning rates directly from trajectories
+            slowest_lr = calculate_learning_rate(performance['slowest_mean'])
+            fastest_lr = calculate_learning_rate(performance['fastest_mean'])
             
-            # Plot slowest agent with confidence interval (removed agent ID from label)
+            # Plot slowest agent with confidence interval - improved styling
             plt.plot(time_steps, performance['slowest_mean'], 
                     label=f'Slowest (r={slowest_lr:.4f})', 
-                    color='red', linewidth=2.5, alpha=0.9)
+                    color='#333333', linestyle='--', marker='s', markersize=6,
+                    markevery=10, linewidth=2.5, alpha=0.9)
             plt.fill_between(time_steps, 
                            performance['slowest_ci'][0], 
                            performance['slowest_ci'][1],
-                           color='red', alpha=0.2)
+                           color='#333333', alpha=0.1)
             
-            # Plot fastest agent with confidence interval (removed agent ID from label)
+            # Plot fastest agent with confidence interval - improved styling
             plt.plot(time_steps, performance['fastest_mean'], 
                     label=f'Fastest (r={fastest_lr:.4f})', 
-                    color='green', linewidth=2.5, alpha=0.9)
+                    color='#000000', linestyle='-', marker='o', markersize=6,
+                    markevery=10, linewidth=2.5, alpha=0.9)
             plt.fill_between(time_steps, 
                            performance['fastest_ci'][0], 
                            performance['fastest_ci'][1],
-                           color='green', alpha=0.2)
+                           color='#000000', alpha=0.1)
             
             plt.xlabel("Time Steps", fontsize=12, fontweight='bold')
             plt.ylabel("Incorrect Action Probability", fontsize=12, fontweight='bold')
             if num_agents == 1:
-                plt.title(f"Autarky (Average over {performance['num_episodes']} episodes)", fontsize=14, fontweight='bold')
+                plt.title(f"Autarky", fontsize=14, fontweight='bold')
             else:
-                plt.title(f"{num_agents} Agents (Average over {performance['num_episodes']} episodes)", fontsize=14, fontweight='bold')
-            plt.legend(fontsize=12, loc='upper right')
+                plt.title(f"{num_agents} Agents", fontsize=14, fontweight='bold')
+            plt.legend(fontsize=12, loc='upper right', framealpha=0.9)
             plt.grid(True, alpha=0.3)
+            
+            # Set clean white background
+            ax = plt.gca()
+            ax.set_facecolor('white')
     
-    plt.suptitle(f"Fastest vs Slowest Learning Evolution Across Network Sizes\n({primary_network.capitalize()} Network, 95% Confidence Intervals)", 
+    plt.suptitle(f"Fastest vs Slowest Learning Evolution Across Network Sizes\n({primary_network.capitalize()} Network, mean over {args.episodes} episodes with ±95% CI)", 
                  fontsize=16, fontweight='bold')
     plt.tight_layout()
     
     plot_path = RESULTS_DIR / "fastest_slowest_network_sizes_evolution.png"
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight', facecolor='white')
     print(f"Saved network sizes evolution plot to {plot_path}")
     plt.close()
     
@@ -1618,39 +1625,46 @@ def main():
         if performance['slowest_mean'] is not None:
             time_steps = range(len(performance['slowest_mean']))
             
-            slowest_lr = performance['learning_rates'].get(performance['slowest_agent_id'], 0.0)
-            fastest_lr = performance['learning_rates'].get(performance['fastest_agent_id'], 0.0)
+            # Calculate learning rates directly from trajectories
+            slowest_lr = calculate_learning_rate(performance['slowest_mean'])
+            fastest_lr = calculate_learning_rate(performance['fastest_mean'])
             
-            # Plot slowest agent with confidence interval (removed agent ID from label)
+            # Plot slowest agent with confidence interval - improved styling
             plt.plot(time_steps, performance['slowest_mean'], 
                     label=f'Slowest (r={slowest_lr:.4f})', 
-                    color='red', linewidth=2.5, alpha=0.9)
+                    color='#333333', linestyle='--', marker='s', markersize=6,
+                    markevery=10, linewidth=2.5, alpha=0.9)
             plt.fill_between(time_steps, 
                            performance['slowest_ci'][0], 
                            performance['slowest_ci'][1],
-                           color='red', alpha=0.2)
+                           color='#333333', alpha=0.1)
             
-            # Plot fastest agent with confidence interval (removed agent ID from label)
+            # Plot fastest agent with confidence interval - improved styling
             plt.plot(time_steps, performance['fastest_mean'], 
                     label=f'Fastest (r={fastest_lr:.4f})', 
-                    color='green', linewidth=2.5, alpha=0.9)
+                    color='#000000', linestyle='-', marker='o', markersize=6,
+                    markevery=10, linewidth=2.5, alpha=0.9)
             plt.fill_between(time_steps, 
                            performance['fastest_ci'][0], 
                            performance['fastest_ci'][1],
-                           color='green', alpha=0.2)
+                           color='#000000', alpha=0.1)
             
             plt.xlabel("Time Steps", fontsize=12, fontweight='bold')
             plt.ylabel("Incorrect Action Probability", fontsize=12, fontweight='bold')
-            plt.title(f"{network_type.capitalize()} Network (Average over {performance['num_episodes']} episodes)", fontsize=14, fontweight='bold')
-            plt.legend(fontsize=12, loc='upper right')
+            plt.title(f"{network_type.capitalize()} Network", fontsize=14, fontweight='bold')
+            plt.legend(fontsize=12, loc='upper right', framealpha=0.9)
             plt.grid(True, alpha=0.3)
+            
+            # Set clean white background
+            ax = plt.gca()
+            ax.set_facecolor('white')
     
-    plt.suptitle(f"Fastest vs Slowest Learning Evolution Across Network Types\n({fixed_agent_count} Agents, 95% Confidence Intervals)", 
+    plt.suptitle(f"Fastest vs Slowest Learning Evolution Across Network Topologies\n({fixed_agent_count} Agents, mean over {args.episodes} episodes with ±95% CI)", 
                  fontsize=16, fontweight='bold')
     plt.tight_layout()
     
     plot_path = RESULTS_DIR / "fastest_slowest_network_types_evolution.png"
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight', facecolor='white')
     print(f"Saved network types evolution plot to {plot_path}")
     plt.close()
     
