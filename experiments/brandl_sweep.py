@@ -1508,8 +1508,14 @@ def main():
     print("   • Private signal analysis over time")
     print()
     
-    # Set matplotlib style
+    # Set matplotlib style for grayscale and publication quality
     plt.rcParams["font.family"] = "serif"
+    plt.rcParams["font.serif"] = [
+        "DejaVu Serif",
+        "Times New Roman", 
+        "Times",
+        "serif",
+    ]
     
     results = {}
     
@@ -1545,7 +1551,6 @@ def main():
     
     # Plot 1: Fastest vs Slowest trajectories across Network Sizes (using first network type)
     primary_network = args.network_types[0]
-    plt.figure(figsize=(15, 10))
     
     agent_counts = sorted(results[primary_network].keys())
     
@@ -1554,9 +1559,23 @@ def main():
     n_cols = min(2, n_sizes)  # Use 2 columns instead of 3
     n_rows = (n_sizes + n_cols - 1) // n_cols
     
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 8), constrained_layout=True)
+    if n_sizes == 1:
+        axes = [axes]
+    elif n_sizes <= 2:
+        axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+    else:
+        axes = axes.flatten()
+    
+    # Better grayscale colors with higher contrast
+    slowest_color = '#404040'  # Dark gray for slowest
+    fastest_color = '#000000'  # Black for fastest
+    
     for i, num_agents in enumerate(agent_counts):
-        plt.subplot(n_rows, n_cols, i + 1)
-        
+        ax = axes[i] if i < len(axes) else None
+        if ax is None:
+            continue
+            
         performance = results[primary_network][num_agents]
         if performance['slowest_mean'] is not None:
             time_steps = range(len(performance['slowest_mean']))
@@ -1566,61 +1585,72 @@ def main():
             fastest_lr = calculate_learning_rate(performance['fastest_mean'])
             
             # Plot slowest agent with confidence interval - improved styling
-            plt.plot(time_steps, performance['slowest_mean'], 
+            ax.plot(time_steps, performance['slowest_mean'], 
                     label=f'Slowest (r={slowest_lr:.4f})', 
-                    color='#333333', linestyle='--', marker='s', markersize=6,
-                    markevery=10, linewidth=2.5, alpha=0.9)
-            plt.fill_between(time_steps, 
+                    color=slowest_color, linestyle='--', marker='s', markersize=4,
+                    markevery=10, linewidth=2, alpha=0.9)
+            ax.fill_between(time_steps, 
                            performance['slowest_ci'][0], 
                            performance['slowest_ci'][1],
-                           color='#333333', alpha=0.1)
+                           color=slowest_color, alpha=0.1)
             
             # Plot fastest agent with confidence interval - improved styling
-            plt.plot(time_steps, performance['fastest_mean'], 
+            ax.plot(time_steps, performance['fastest_mean'], 
                     label=f'Fastest (r={fastest_lr:.4f})', 
-                    color='#000000', linestyle='-', marker='o', markersize=6,
-                    markevery=10, linewidth=2.5, alpha=0.9)
-            plt.fill_between(time_steps, 
+                    color=fastest_color, linestyle='-', marker='o', markersize=4,
+                    markevery=10, linewidth=2, alpha=0.9)
+            ax.fill_between(time_steps, 
                            performance['fastest_ci'][0], 
                            performance['fastest_ci'][1],
-                           color='#000000', alpha=0.1)
+                           color=fastest_color, alpha=0.1)
             
-            plt.xlabel("Time Steps", fontsize=12, fontweight='bold')
-            plt.ylabel("Incorrect Action Probability", fontsize=12, fontweight='bold')
+            ax.set_xlabel("Time Steps", fontsize=12, fontweight='bold')
+            ax.set_ylabel("Incorrect Action Probability", fontsize=12, fontweight='bold')
             if num_agents == 1:
-                plt.title(f"Autarky", fontsize=14, fontweight='bold')
+                ax.set_title(f"Autarky", fontsize=14, fontweight='bold')
             else:
-                plt.title(f"{num_agents} Agents", fontsize=14, fontweight='bold')
-            plt.legend(fontsize=12, loc='upper right', framealpha=0.9)
-            plt.grid(True, alpha=0.3)
+                ax.set_title(f"{num_agents} Agents", fontsize=14, fontweight='bold')
+            ax.legend(fontsize=12, loc='upper right', framealpha=0.9)
+            ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+            ax.tick_params(labelsize=10)
             
             # Set clean white background
-            ax = plt.gca()
             ax.set_facecolor('white')
     
-    plt.suptitle(f"Fastest vs Slowest Learning Evolution Across Network Sizes\n({primary_network.capitalize()} Network, mean over {args.episodes} episodes with ±95% CI)", 
+    # Hide unused subplots
+    if len(axes) > len(agent_counts):
+        for i in range(len(agent_counts), len(axes)):
+            axes[i].set_visible(False)
+    
+    fig.suptitle(f"Fastest vs Slowest Learning Evolution Across Network Sizes\n({primary_network.capitalize()} Network, mean over {args.episodes} episodes with ±95% CI)", 
                  fontsize=16, fontweight='bold')
-    plt.tight_layout()
     
     plot_path = RESULTS_DIR / "fastest_slowest_network_sizes_evolution.png"
     plt.savefig(plot_path, dpi=300, bbox_inches='tight', facecolor='white')
     print(f"Saved network sizes evolution plot to {plot_path}")
     plt.close()
     
-    # Plot 2: Fastest vs Slowest trajectories across Network Types (using middle agent count)
-    middle_idx = len(args.agent_counts) // 2
+    # Plot 2: Fastest vs Slowest trajectories across Network Types (using largest agent count)
     fixed_agent_count = args.agent_counts[-1]
-    
-    plt.figure(figsize=(15, 10))
     
     network_names = list(results.keys())
     n_networks = len(network_names)
     n_cols = min(2, n_networks)
     n_rows = (n_networks + n_cols - 1) // n_cols
     
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 8), constrained_layout=True)
+    if n_networks == 1:
+        axes = [axes]
+    elif n_networks <= 2:
+        axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+    else:
+        axes = axes.flatten()
+    
     for i, network_type in enumerate(network_names):
-        plt.subplot(n_rows, n_cols, i + 1)
-        
+        ax = axes[i] if i < len(axes) else None
+        if ax is None:
+            continue
+            
         performance = results[network_type][fixed_agent_count]
         if performance['slowest_mean'] is not None:
             time_steps = range(len(performance['slowest_mean']))
@@ -1630,38 +1660,42 @@ def main():
             fastest_lr = calculate_learning_rate(performance['fastest_mean'])
             
             # Plot slowest agent with confidence interval - improved styling
-            plt.plot(time_steps, performance['slowest_mean'], 
+            ax.plot(time_steps, performance['slowest_mean'], 
                     label=f'Slowest (r={slowest_lr:.4f})', 
-                    color='#333333', linestyle='--', marker='s', markersize=6,
-                    markevery=10, linewidth=2.5, alpha=0.9)
-            plt.fill_between(time_steps, 
+                    color=slowest_color, linestyle='--', marker='s', markersize=4,
+                    markevery=10, linewidth=2, alpha=0.9)
+            ax.fill_between(time_steps, 
                            performance['slowest_ci'][0], 
                            performance['slowest_ci'][1],
-                           color='#333333', alpha=0.1)
+                           color=slowest_color, alpha=0.1)
             
             # Plot fastest agent with confidence interval - improved styling
-            plt.plot(time_steps, performance['fastest_mean'], 
+            ax.plot(time_steps, performance['fastest_mean'], 
                     label=f'Fastest (r={fastest_lr:.4f})', 
-                    color='#000000', linestyle='-', marker='o', markersize=6,
-                    markevery=10, linewidth=2.5, alpha=0.9)
-            plt.fill_between(time_steps, 
+                    color=fastest_color, linestyle='-', marker='o', markersize=4,
+                    markevery=10, linewidth=2, alpha=0.9)
+            ax.fill_between(time_steps, 
                            performance['fastest_ci'][0], 
                            performance['fastest_ci'][1],
-                           color='#000000', alpha=0.1)
+                           color=fastest_color, alpha=0.1)
             
-            plt.xlabel("Time Steps", fontsize=12, fontweight='bold')
-            plt.ylabel("Incorrect Action Probability", fontsize=12, fontweight='bold')
-            plt.title(f"{network_type.capitalize()} Network", fontsize=14, fontweight='bold')
-            plt.legend(fontsize=12, loc='upper right', framealpha=0.9)
-            plt.grid(True, alpha=0.3)
+            ax.set_xlabel("Time Steps", fontsize=12, fontweight='bold')
+            ax.set_ylabel("Incorrect Action Probability", fontsize=12, fontweight='bold')
+            ax.set_title(f"{network_type.capitalize()} Network", fontsize=14, fontweight='bold')
+            ax.legend(fontsize=12, loc='upper right', framealpha=0.9)
+            ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+            ax.tick_params(labelsize=10)
             
             # Set clean white background
-            ax = plt.gca()
             ax.set_facecolor('white')
     
-    plt.suptitle(f"Fastest vs Slowest Learning Evolution Across Network Topologies\n({fixed_agent_count} Agents, mean over {args.episodes} episodes with ±95% CI)", 
+    # Hide unused subplots
+    if len(axes) > len(network_names):
+        for i in range(len(network_names), len(axes)):
+            axes[i].set_visible(False)
+    
+    fig.suptitle(f"Fastest vs Slowest Learning Evolution Across Network Topologies\n({fixed_agent_count} Agents, mean over {args.episodes} episodes with ±95% CI)", 
                  fontsize=16, fontweight='bold')
-    plt.tight_layout()
     
     plot_path = RESULTS_DIR / "fastest_slowest_network_types_evolution.png"
     plt.savefig(plot_path, dpi=300, bbox_inches='tight', facecolor='white')

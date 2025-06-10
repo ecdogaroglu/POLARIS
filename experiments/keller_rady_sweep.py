@@ -326,9 +326,9 @@ def plot_unified_results(results, args):
                        color=color, 
                        linestyle=line_style,
                        marker=marker,
-                       markersize=6,
+                       markersize=4,
                        markevery=10,  # Show marker at every point
-                       linewidth=2.5, 
+                       linewidth=2, 
                        alpha=0.9)
                 ax.fill_between(time_steps, 
                               ci_data[0], 
@@ -339,7 +339,7 @@ def plot_unified_results(results, args):
         ax.set_xlabel("Time Steps", fontsize=12, fontweight='bold')
         ax.set_ylabel("Cumulative Allocation", fontsize=12, fontweight='bold')
         ax.set_title(config['title'], fontsize=14, fontweight='bold')
-        ax.legend(fontsize=10, loc='upper left', framealpha=0.9)
+        ax.legend(fontsize=12, loc='upper left', framealpha=0.9)
         ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
         ax.tick_params(labelsize=10)
         
