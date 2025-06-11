@@ -31,6 +31,36 @@ POLARIS introduces **Partially Observable Active Markov Games (POAMGs)**, extend
 
 **[Read the full theoretical treatment →](docs/thesis.pdf)**
 
+### Key Findings
+
+Our research reveals several important insights about strategic social learning:
+
+1. **Dynamic Role Assignment**: Agents naturally differentiate into complementary roles:
+   - Information generators who engage in more exploratory behavior
+   - Information exploiters who benefit from others' exploration
+   
+2. **Network Effects**: Learning dynamics vary significantly with network structure:
+   - Complete networks show largest performance gaps between fastest and slowest learners
+   - Ring networks exhibit more uniform learning rates
+   - Star networks create pronounced differences between central and peripheral agents
+
+3. **Efficiency Outcomes**: Contrary to traditional economic predictions:
+   - Free-riding behavior does not lead to uniform inefficiencies
+   - Some agents achieve performance exceeding autarky levels in larger networks
+   - Collective information processing enhances overall learning
+
+![Learning Dynamics](docs/unified_accuracy_over_time.png)
+*Learning dynamics in strategic experimentation showing convergence to state-dependent optimal strategies*
+
+![Network Size Effects](docs/fastest_slowest_network_sizes_evolution.png)
+*Learning trajectories across different network sizes, revealing systematic performance differences*
+
+![Network Topology Effects](docs/fastest_slowest_network_types_evolution.png)
+*Impact of network topology on learning dynamics, showing how information flow affects performance*
+
+![Role Assignment](docs/unified_cumulative_allocators.png)
+*Emergence of dynamic roles through allocation patterns across different network sizes*
+
 ### Key Features
 
 - **Theoretical Foundation**: Based on Partially Observable Active Markov Games (POAMGs)
@@ -124,15 +154,25 @@ episodic_metrics, processed_metrics = run_experiment(env, config)
 
 **Brandl Social Learning**: Agents learn about a hidden state through private signals and social observation
 - Discrete actions, configurable network topologies, theoretical bounds analysis
+- Learning barriers and coordination benefits in different network structures
+- Dynamic role assignment between information generators and exploiters
 
 **Strategic Experimentation (Keller-Rady)**: Agents allocate resources between safe and risky options
 - Continuous actions, Lévy processes, exploration-exploitation trade-offs
+- State-dependent optimal allocation strategies
+- Collective information processing through social learning
 
 ### Neural Architectures
 
 - **Graph Neural Networks**: Temporal attention over social networks
+  - Captures dynamic information flow patterns
+  - Enables effective social learning across different network topologies
 - **Transformers**: Advanced belief state processing
+  - Handles partial observability through sophisticated belief updates
+  - Maintains strategic coherence beyond individual signal observation
 - **Variational Inference**: Opponent modeling and belief updating
+  - Models evolving strategies of other agents
+  - Enables strategic reasoning about others' learning processes
 
 ### Advanced Features
 
@@ -201,7 +241,8 @@ python experiments/keller_rady_sweep.py \
 - **Convergence Analysis**: Studies optimal strategy convergence
 
 **Generated Outputs:**
-- `average_cumulative_allocation_per_agent_over_time.png` - Allocation trends with confidence intervals
+- `unified_accuracy_over_time.png` - Learning dynamics and convergence patterns
+- `unified_cumulative_allocators.png` - Allocation trends with confidence intervals
 
 ## Examples
 
@@ -225,10 +266,10 @@ from polaris.config.experiment_config import ExperimentConfig, AgentConfig, Trai
 # Strategic experimentation with continual learning
 config = ExperimentConfig(
     agent=AgentConfig(
-        use_si=True,
-        si_importance=100.0,
-        num_gnn_layers=3,
-        temporal_window_size=10
+        use_si=True,  # Enable Synaptic Intelligence for continual learning
+        si_importance=100.0,  # Importance weight for preventing catastrophic forgetting
+        num_gnn_layers=3,  # Graph Neural Network layers for social learning
+        temporal_window_size=10  # Window for temporal attention
     ),
     training=TrainingConfig(
         num_episodes=10, 
@@ -238,9 +279,42 @@ config = ExperimentConfig(
         num_agents=4,
         continuous_actions=True,
         safe_payoff=1.0,
-        drift_rates=[-0.5, 0.5]
+        drift_rates=[-0.5, 0.5]  # Good and bad state drift rates
     )
 )
+```
+
+### Key Research Scenarios
+
+1. **Learning Barriers Analysis**
+```bash
+# Analyze learning barriers across network sizes
+python experiments/brandl_sweep.py \
+    --agent-counts 4 8 16 32 \
+    --network-types complete \
+    --episodes 10 \
+    --signal-accuracy 0.75 \
+    --plot-learning-rates
+```
+
+2. **Dynamic Role Assignment Study**
+```bash
+# Study role emergence in strategic experimentation
+python experiments/keller_rady_experiment.py \
+    --agents 8 \
+    --horizon 10000 \
+    --plot-allocations \
+    --track-roles
+```
+
+3. **Network Topology Impact**
+```bash
+# Compare learning dynamics across network structures
+python experiments/brandl_sweep.py \
+    --agent-counts 8 \
+    --network-types complete ring star random \
+    --episodes 5 \
+    --plot-network-effects
 ```
 
 ## Available Scripts
@@ -248,8 +322,8 @@ config = ExperimentConfig(
 | Script | Purpose | Key Features |
 |--------|---------|-------------|
 | `polaris-simulate` | General experimentation | Flexible interface for both environments |
-| `experiments/brandl_experiment.py` | Single Brandl experiment | Belief analysis, state plots |
-| `experiments/keller_rady_experiment.py` | Single strategic experiment | Allocation plots, convergence analysis |
+| `experiments/brandl_experiment.py` | Single Brandl experiment | Belief analysis, state plots, learning barriers |
+| `experiments/keller_rady_experiment.py` | Single strategic experiment | Allocation plots, role assignment analysis |
 | `experiments/brandl_sweep.py` | Multi-agent Brandl analysis | Learning rates, network topology comparison |
 | `experiments/keller_rady_sweep.py` | Multi-agent strategic analysis | Cumulative allocations, scaling analysis |
 
@@ -258,13 +332,31 @@ config = ExperimentConfig(
 ```
 polaris/
 ├── agents/          # Agent implementations with memory systems
+│   ├── belief.py    # Belief state processing and updates
+│   ├── memory.py    # Experience replay and continual learning
+│   └── policy.py    # Policy networks with social learning
 ├── algorithms/      # Regularization techniques (SI, EWC)
+│   ├── si.py        # Synaptic Intelligence implementation
+│   └── ewc.py       # Elastic Weight Consolidation
 ├── config/          # Configuration system
+│   ├── agent_config.py      # Agent hyperparameters
+│   ├── env_config.py        # Environment settings
+│   └── training_config.py   # Training parameters
 ├── environments/    # Brandl and Keller-Rady environments
-├── networks/        # Graph neural network architectures
+│   ├── brandl.py    # Social learning without experimentation
+│   └── keller_rady.py       # Strategic experimentation
+├── networks/        # Neural network architectures
+│   ├── gnn.py       # Graph Neural Networks with attention
+│   ├── transformer.py       # Belief state processing
+│   └── variational.py       # Opponent modeling
 ├── training/        # Training loop and simulation runner
+│   ├── simulation.py        # Main training loop
+│   └── metrics.py   # Performance tracking
 ├── utils/           # Utilities for device management, etc.
 └── visualization/   # Plotting and visualization tools
+    ├── learning_curves.py   # Learning dynamics plots
+    ├── network_effects.py   # Network topology analysis
+    └── role_assignment.py   # Role emergence visualization
 
 experiments/
 ├── brandl_experiment.py           # Single Brandl experiment

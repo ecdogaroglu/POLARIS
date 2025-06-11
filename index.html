@@ -25,19 +25,19 @@
     
     <style>
         :root {
-            --primary-color: #1f2937;
-            --primary-dark: #111827;
-            --secondary-color: #4b5563;
-            --accent-color: #059669;
-            --accent-light: #10b981;
+            --primary-color: #991b1b;  /* Dark red */
+            --primary-dark: #7f1d1d;   /* Darker red */
+            --secondary-color: #b91c1c; /* Medium red */
+            --accent-color: #dc2626;   /* Bright red */
+            --accent-light: #ef4444;   /* Light red */
             --bg-color: #ffffff;
-            --bg-secondary: #f9fafb;
-            --bg-tertiary: #f3f4f6;
-            --text-primary: #111827;
+            --bg-secondary: #ffffff;   /* Keep white */
+            --bg-tertiary: #ffffff;    /* Keep white */
+            --text-primary: #1f2937;
             --text-secondary: #4b5563;
             --text-muted: #6b7280;
-            --border-color: #d1d5db;
-            --border-light: #e5e7eb;
+            --border-color: #1f2937;   /* Dark border */
+            --border-light: #4b5563;   /* Lighter border */
             --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
             --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
             --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
@@ -105,14 +105,24 @@
         }
 
         .logo {
-            font-family: 'Crimson Text', serif;
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--primary-color);
-            text-decoration: none;
             display: flex;
             align-items: center;
             gap: 0.5rem;
+            font-weight: 700;
+            font-size: 1.5rem;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+
+        .logo svg {
+            width: 1.5rem;
+            height: 1.5rem;
+            color: var(--accent-color);
+        }
+
+        .logo span {
+            font-size: 1.5rem;
+            font-weight: 700;
         }
 
         .nav-links {
@@ -156,7 +166,7 @@
 
         /* Hero Section */
         .hero {
-            background: linear-gradient(135deg, var(--bg-color) 0%, var(--bg-secondary) 100%);
+            background: var(--bg-color);
             padding: 8rem 0 6rem;
             text-align: center;
             position: relative;
@@ -285,7 +295,7 @@
 
         /* Research Highlights */
         .research {
-            background: var(--bg-secondary);
+            background: var(--bg-color);
         }
 
         .research-grid {
@@ -300,13 +310,14 @@
             padding: 2rem;
             border-radius: 0.5rem;
             box-shadow: var(--shadow-sm);
-            border: 1px solid var(--border-light);
+            border: 1px solid var(--border-color);
             transition: all 0.3s ease;
         }
 
         .research-card:hover {
             transform: translateY(-4px);
             box-shadow: var(--shadow-lg);
+            border-color: var(--accent-color);
         }
 
         .research-card h3 {
@@ -379,7 +390,7 @@
             background: white;
             border-radius: 0.5rem;
             box-shadow: var(--shadow-sm);
-            border: 1px solid var(--border-light);
+            border: 1px solid var(--border-color);
             overflow: hidden;
         }
 
@@ -391,10 +402,11 @@
 
         .plot-caption {
             padding: 1rem;
-            background: var(--bg-secondary);
+            background: white;
             font-size: 0.95rem;
             line-height: 1.6;
             color: var(--text-secondary);
+            border-top: 1px solid var(--border-color);
         }
 
         .plot-caption strong {
@@ -424,7 +436,7 @@
             padding: 1.5rem;
             border-radius: 0.5rem;
             box-shadow: var(--shadow-sm);
-            border: 1px solid var(--border-light);
+            border: 1px solid var(--border-color);
             display: flex;
             align-items: flex-start;
             gap: 1rem;
@@ -434,6 +446,7 @@
         .finding-item:hover {
             transform: translateY(-2px);
             box-shadow: var(--shadow-md);
+            border-color: var(--accent-color);
         }
 
         .finding-icon {
@@ -549,12 +562,13 @@
         }
 
         .code-container {
-            background: #1e293b;
+            background: #1a1a1a;
             border-radius: 0.5rem;
             padding: 2rem;
             margin-top: 2rem;
             position: relative;
             overflow-x: auto;
+            border: 1px solid var(--border-color);
         }
 
         .code-header {
@@ -583,7 +597,7 @@
 
         /* Publications */
         .publications {
-            background: var(--bg-secondary);
+            background: var(--bg-color);
         }
 
         .pub-list {
@@ -596,8 +610,12 @@
             padding: 2rem;
             border-radius: 0.5rem;
             box-shadow: var(--shadow-sm);
-            border: 1px solid var(--border-light);
+            border: 1px solid var(--border-color);
             margin-bottom: 1.5rem;
+        }
+
+        .pub-item:hover {
+            border-color: var(--accent-color);
         }
 
         .pub-title {
@@ -719,7 +737,8 @@
 
         /* Academic Elements */
         .definition-box {
-            background: #f8fafc;
+            background: white;
+            border: 1px solid var(--border-color);
             border-left: 4px solid var(--accent-color);
             padding: 1.5rem;
             margin: 1.5rem 0;
@@ -734,15 +753,16 @@
         }
 
         .theorem-box {
-            background: #fef7f0;
-            border-left: 4px solid #f59e0b;
+            background: white;
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--accent-color);
             padding: 1.5rem;
             margin: 1.5rem 0;
             border-radius: 0 0.375rem 0.375rem 0;
         }
 
         .theorem-box h4 {
-            color: #f59e0b;
+            color: var(--accent-color);
             margin-bottom: 0.5rem;
             font-size: 1rem;
             font-weight: 600;
@@ -755,8 +775,10 @@
         <div class="container">
             <nav>
                 <a href="#" class="logo">
-                    <i class="fas fa-graduation-cap"></i>
-                    POLARIS
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.007 5.404.433c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.433 2.082-5.006z" clip-rule="evenodd" />
+                    </svg>
+                    <span>POLARIS</span>
                 </a>
                 <ul class="nav-links">
                     <li><a href="#research">Research</a></li>
@@ -781,15 +803,15 @@
                 <div class="subtitle">Supervisor: Prof. Dr. Florian Brandl</div>
                 
                 <div class="abstract-preview">
-                    This thesis bridges economic social learning theory and multi-agent reinforcement learning by introducing <strong>Partially Observable Active Markov Games (POAMGs)</strong>—a novel framework for modeling sophisticated learning dynamics in environments with partial observability. We develop <strong>POLARIS</strong> (Partially Observable Learning with Active Reinforcement In Social environments), a practical algorithm implementing our theoretical framework, and apply it to canonical social learning scenarios including strategic experimentation and learning without experimentation.
+                    This thesis bridges economic social learning theory and multi-agent reinforcement learning by developing <strong>Partially Observable Active Markov Games (POAMGs)</strong> and the POLARIS algorithm. Our framework addresses fundamental challenges in modeling adaptive behavior under partial observability, where agents must simultaneously learn about uncertain environments and evolving strategies of others.
                     
                     <br><br>
                     
-                    Traditional economic models provide valuable theoretical insights but often rely on simplified assumptions about agents' behavior, while reinforcement learning approaches offer computational tools that frequently lack theoretical foundations for strategic adaptation. Our framework addresses three fundamental challenges: <strong>strategic adaptation</strong> in non-stationary environments, <strong>partial observability</strong> as an intrinsic feature of social learning contexts, and <strong>long-term strategic considerations</strong> where agents balance immediate rewards with information generation.
+                    We extend Active Markov Games to partially observable settings, derive theoretical convergence results, and develop a practical algorithm combining Transformer-based belief processing, Graph Neural Networks with attention mechanisms, and Multi-Agent Soft Actor-Critic based reinforcement learning optimization. Applied to strategic experimentation and learning without experimentation scenarios, our approach reveals dynamic role assignment as a robust organizing principle where agents naturally differentiate into complementary roles enhancing collective information processing.
                     
                     <br><br>
                     
-                    We establish <strong>convergence conditions</strong> for the joint process of states, beliefs, and policy parameters, prove the existence of <strong>stochastically stable distributions</strong>, and develop novel <strong>policy gradient theorems</strong> for belief-conditioned policies in non-stationary multi-agent environments. Our results validate theoretical predictions while demonstrating how reinforcement learning agents can discover sophisticated strategies for information revelation and strategic influence.
+                    We find that free-riding behavior does not lead to uniform inefficiencies—for some agents, performance in larger networks exceeds autarky levels. Our ex-post aggregation methodology addresses computational challenges like catastrophic forgetting while providing systematic approaches for extracting insights from multi-agent learning dynamics. The framework contributes theoretical foundations to multi-agent reinforcement learning and computational tools to economic theory, demonstrating how interdisciplinary approaches can illuminate complex social learning phenomena neither field could address alone.
                 </div>
 
                 <div class="hero-buttons">
@@ -860,35 +882,35 @@
                     
                     <div class="plots-grid">
                         <div class="plot-container">
-                            <img src="docs/allocation_accuracy_over_time.png" alt="Allocation Accuracy Over Time" class="result-plot">
+                            <img src="docs/unified_accuracy_over_time.png" alt="Learning Dynamics" class="result-plot">
                             <div class="plot-caption">
-                                <strong>Allocation Accuracy Evolution:</strong> Both agents converge to near-perfect allocation accuracy (~100%) after approximately 400 time steps, demonstrating successful learning of optimal experimentation strategies despite partial observability.
+                                <strong>Learning Dynamics:</strong> Agents successfully learn to converge toward state-dependent optimal allocation strategies, with increasing allocation to risky arm in good states and favoring safe alternatives in bad states.
                             </div>
                         </div>
                         <div class="plot-container">
-                            <img src="docs/belief_accuracy_over_time.png" alt="Belief Accuracy Over Time" class="result-plot">
+                            <img src="docs/unified_cumulative_allocators.png" alt="Cumulative Allocators" class="result-plot">
                             <div class="plot-caption">
-                                <strong>Belief Formation Dynamics:</strong> Agents' beliefs exhibit sophisticated oscillatory patterns before stabilizing around 85% accuracy, revealing the complex interplay between individual learning and social information aggregation.
+                                <strong>Dynamic Role Assignment:</strong> Systematic widening of the gap between highest and lowest cumulative allocators as group size increases, revealing the emergence of information generators and exploiters.
                             </div>
                         </div>
                     </div>
                 </div>
                 
                 <div class="result-category">
-                    <h3>Learning Without Experimentation: Information Generation Roles</h3>
-                    <p>A key finding validates the theoretical prediction that network learning creates asymmetric roles. Some agents become "information generators" who learn slower than in autarky, while others benefit from their sacrifices. This phenomenon persists across network sizes and topologies.</p>
+                    <h3>Learning Without Experimentation: Network Effects</h3>
+                    <p>Our analysis reveals how network structure influences learning dynamics and the emergence of specialized roles. The results demonstrate that learning barriers and coordination benefits are fundamental features of multi-agent social learning systems.</p>
                     
                     <div class="plots-grid">
                         <div class="plot-container">
                             <img src="docs/fastest_slowest_network_sizes_evolution.png" alt="Learning Evolution Across Network Sizes" class="result-plot">
                             <div class="plot-caption">
-                                <strong>Network Size Effects:</strong> As network size increases from autarky to 8 agents, the gap between fastest and slowest learners widens. The fastest agent improves (r=0.3564→0.5023) while the slowest deteriorates (r=0.3564→0.1216), confirming theoretical predictions about information specialization.
+                                <strong>Network Size Effects:</strong> As network size increases, the gap between fastest and slowest learners widens, with some agents achieving performance substantially exceeding single-agent capabilities while others approach the theoretical learning barrier.
                             </div>
                         </div>
                         <div class="plot-container">
                             <img src="docs/fastest_slowest_network_types_evolution.png" alt="Learning Evolution Across Network Types" class="result-plot">
                             <div class="plot-caption">
-                                <strong>Network Topology Effects:</strong> Different network structures produce varying degrees of learning inequality. Complete networks show the largest fastest-slowest gap, while random networks maintain relatively balanced learning rates, highlighting the importance of network structure in social learning efficiency.
+                                <strong>Network Topology Effects:</strong> Complete networks facilitate the most effective information sharing, producing the largest performance gaps. Ring networks show more uniform learning rates, while star networks create pronounced differences between central and peripheral agents.
                             </div>
                         </div>
                     </div>
@@ -902,8 +924,8 @@
                                 <i class="fas fa-chart-line"></i>
                             </div>
                             <div class="finding-content">
-                                <h4>Convergence Validation</h4>
-                                <p>POLARIS agents consistently converge to near-optimal strategies within 400-500 time steps across different environments, validating our stochastic stability theorems.</p>
+                                <h4>Dynamic Role Assignment</h4>
+                                <p>Agents naturally differentiate into information generators and exploiters, with some engaging in more exploratory behavior while others benefit from their sacrifices.</p>
                             </div>
                         </div>
                         <div class="finding-item">
@@ -911,8 +933,8 @@
                                 <i class="fas fa-users"></i>
                             </div>
                             <div class="finding-content">
-                                <h4>Emergent Specialization</h4>
-                                <p>Networks spontaneously develop information generation roles, with some agents sacrificing individual learning speed to benefit collective intelligence.</p>
+                                <h4>Network Structure Impact</h4>
+                                <p>Learning dynamics vary significantly with network topology, with complete networks showing largest performance gaps and ring networks exhibiting more uniform learning rates.</p>
                             </div>
                         </div>
                         <div class="finding-item">
@@ -920,8 +942,8 @@
                                 <i class="fas fa-network-wired"></i>
                             </div>
                             <div class="finding-content">
-                                <h4>Topology Matters</h4>
-                                <p>Network structure significantly affects learning dynamics: complete networks maximize inequality while maintaining high collective performance.</p>
+                                <h4>Efficiency Outcomes</h4>
+                                <p>Free-riding behavior does not lead to uniform inefficiencies—some agents achieve performance exceeding autarky levels in larger networks through collective information processing.</p>
                             </div>
                         </div>
                     </div>
