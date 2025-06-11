@@ -67,7 +67,7 @@ Our research reveals several important insights about strategic social learning:
 - **Strategic Learning**: Agents influence others' learning processes under partial observability
 - **Advanced Architectures**: Graph Neural Networks with Temporal Attention and Transformers 
 - **Continual Learning**: Synaptic Intelligence prevents catastrophic forgetting
-- **Two Environments**: Brandl social learning and Keller-Rady strategic experimentation
+- **Two Environments**: Strategic experimentation and learning without experimentation
 
 ## Quick Start
 
@@ -85,7 +85,7 @@ pip install polaris-marl[all]
 
 **General Purpose Simulation**
 ```bash
-# Social learning experiment (Brandl framework)
+# Learning without experimentation (Brandl framework)
 polaris-simulate --environment-type brandl --num-agents 5 --num-states 3 --signal-accuracy 0.8
 
 # Strategic experimentation (Keller-Rady framework)
@@ -94,10 +94,10 @@ polaris-simulate --environment-type strategic_experimentation --num-agents 4 --c
 
 **Research Scripts**
 ```bash
-# Brandl social learning sweep - analyzes individual agent performance across network topologies
+# Learning without experimentation sweep - analyzes individual agent performance across network topologies
 python experiments/brandl_sweep.py --agent-counts 1 2 4 6 8 --network-types complete ring star random --episodes 5
 
-# Keller-Rady strategic experimentation sweep - compares aggregate performance across agent counts
+# Strategic experimentation sweep - compares aggregate performance across agent counts
 python experiments/keller_rady_sweep.py --agent-counts 2 3 4 5 6 7 8 --episodes 3
 
 # Individual experiments
@@ -152,12 +152,12 @@ episodic_metrics, processed_metrics = run_experiment(env, config)
 
 ### Environments
 
-**Brandl Social Learning**: Agents learn about a hidden state through private signals and social observation
+**Learning Without Experimentation (Brandl, 2025)**: Agents learn about a hidden state through private signals and social observation
 - Discrete actions, configurable network topologies, theoretical bounds analysis
 - Learning barriers and coordination benefits in different network structures
 - Dynamic role assignment between information generators and exploiters
 
-**Strategic Experimentation (Keller-Rady)**: Agents allocate resources between safe and risky options
+**Strategic Experimentation (Keller, Rady 2020)**: Agents allocate resources between safe and risky options
 - Continuous actions, Lévy processes, exploration-exploitation trade-offs
 - State-dependent optimal allocation strategies
 - Collective information processing through social learning
@@ -191,7 +191,7 @@ polaris-simulate --network-type ring --network-density 0.3
 
 POLARIS provides specialized sweep scripts for comprehensive research analysis:
 
-#### **Brandl Social Learning Sweep**
+#### **Learning Without Experimentation Sweep**
 
 Analyzes individual agent learning performance across network topologies:
 
@@ -219,7 +219,7 @@ python experiments/brandl_sweep.py \
 - `fastest_slowest_network_types_evolution.png` - Performance trajectories across network types
 - `agent_performance_results.json` - Complete numerical results with learning rates
 
-#### **Keller-Rady Strategic Experimentation Sweep**
+#### **Strategic Experimentation Sweep**
 
 Compares aggregate performance across different agent counts:
 
@@ -248,10 +248,10 @@ python experiments/keller_rady_sweep.py \
 
 ### Research Workflow
 ```bash
-# 1. Individual agent analysis (Brandl social learning)
+# 1. Individual agent analysis (Learning Without Experimentation)
 python experiments/brandl_sweep.py --agent-counts 2 4 6 8 --network-types complete ring star --episodes 5
 
-# 2. Multi-agent comparison (Keller-Rady strategic experimentation)
+# 2. Multi-agent comparison (Strategic Experimentation)
 python experiments/keller_rady_sweep.py --agent-counts 2 3 4 5 6 7 8 --episodes 3
 
 # 3. Single experiments with visualization
@@ -343,7 +343,7 @@ polaris/
 │   ├── env_config.py        # Environment settings
 │   └── training_config.py   # Training parameters
 ├── environments/    # Brandl and Keller-Rady environments
-│   ├── brandl.py    # Social learning without experimentation
+│   ├── brandl.py    # Learning without experimentation
 │   └── keller_rady.py       # Strategic experimentation
 ├── networks/        # Neural network architectures
 │   ├── gnn.py       # Graph Neural Networks with attention

@@ -401,12 +401,18 @@
             box-shadow: var(--shadow-sm);
             border: 1px solid var(--border-color);
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
         }
 
         .result-plot {
             width: 100%;
             height: auto;
             display: block;
+            flex: 1;
+            object-fit: contain;
+            padding: 1rem;
         }
 
         .plot-caption {
@@ -416,6 +422,7 @@
             line-height: 1.6;
             color: var(--text-secondary);
             border-top: 1px solid var(--border-color);
+            margin-top: auto;
         }
 
         .plot-caption strong {
@@ -893,7 +900,7 @@
                         <div class="plot-container">
                             <img src="docs/unified_accuracy_over_time.png" alt="Learning Dynamics" class="result-plot">
                             <div class="plot-caption">
-                                <strong>Learning Dynamics:</strong> Agents successfully learn to converge toward state-dependent optimal allocation strategies, with increasing allocation to risky arm in good states and favoring safe alternatives in bad states.
+                                <strong>Learning Dynamics:</strong> Agents successfully learn to converge toward optimal allocation strategies, with increasing allocation to risky arm in good states and favoring safe alternatives in bad states.
                             </div>
                         </div>
                         <div class="plot-container">
